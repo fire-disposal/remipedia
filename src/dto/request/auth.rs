@@ -18,3 +18,15 @@ pub struct ChangePasswordRequest {
     #[validate(length(min = 6, message = "密码长度至少6位"))]
     pub new_password: String,
 }
+
+/// 刷新令牌请求
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RefreshTokenRequest {
+    pub refresh_token: String,
+}
+
+/// 登出请求
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LogoutRequest {
+    pub refresh_token: String,
+}

@@ -42,6 +42,12 @@ rumqttc = "0.24"
 # 密码哈希
 argon2 = "0.5"
 
+# JWT
+jsonwebtoken = "10"
+
+# 哈希
+sha2 = "0.10"
+
 # 验证
 validator = { version = "0.18", features = ["derive"] }
 

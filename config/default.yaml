@@ -16,4 +16,5 @@ mqtt:
 
 jwt:
   secret: "your-secret-key-change-in-production"
-  expiration_hours: 24
+  expiration_hours: 2
+  refresh_expiration_days: 7

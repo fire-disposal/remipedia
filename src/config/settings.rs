@@ -34,6 +34,7 @@ pub struct MqttConfig {
 pub struct JwtConfig {
     pub secret: String,
     pub expiration_hours: u64,
+    pub refresh_expiration_days: u64,
 }
 
 impl Settings {

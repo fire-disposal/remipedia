@@ -5,8 +5,8 @@ use sqlx::PgPool;
 
 use crate::api::guards::AuthenticatedUser;
 use crate::config::JwtConfig;
-use crate::dto::request::{ChangePasswordRequest, LoginRequest};
-use crate::dto::response::LoginResponse;
+use crate::dto::request::{ChangePasswordRequest, LoginRequest, LogoutRequest, RefreshTokenRequest};
+use crate::dto::response::{LoginResponse, RefreshTokenResponse};
 use crate::errors::AppResult;
 use crate::service::AuthService;
 
@@ -19,6 +19,18 @@ pub async fn login(
 ) -> AppResult<Json<LoginResponse>> {
     let service = AuthService::new(pool, jwt_config);
     let response = service.login(req.into_inner()).await?;
+    Ok(Json(response))
+}
+
+/// 刷新令牌
+#[post("/auth/refresh", data = "<req>")]
+pub async fn refresh_token(
+    pool: &State<PgPool>,
+    jwt_config: &State<JwtConfig>,
+    req: Json<RefreshTokenRequest>,
+) -> AppResult<Json<RefreshTokenResponse>> {
+    let service = AuthService::new(pool, jwt_config);
+    let response = service.refresh_token(req.into_inner()).await?;
     Ok(Json(response))
 }
 
@@ -35,12 +47,19 @@ pub async fn change_password(
     Ok(Json(serde_json::json!({ "success": true, "message": "密码修改成功" })))
 }
 
-/// 登出（客户端清除 token 即可）
-#[post("/auth/logout")]
-pub async fn logout() -> Json<serde_json::Value> {
-    Json(serde_json::json!({ "success": true, "message": "登出成功" }))
+/// 登出
+#[post("/auth/logout", data = "<req>")]
+pub async fn logout(
+    pool: &State<PgPool>,
+    jwt_config: &State<JwtConfig>,
+    _user: AuthenticatedUser,
+    req: Json<LogoutRequest>,
+) -> AppResult<Json<serde_json::Value>> {
+    let service = AuthService::new(pool, jwt_config);
+    service.logout(&req.refresh_token).await?;
+    Ok(Json(serde_json::json!({ "success": true, "message": "登出成功" })))
 }
 
 pub fn routes() -> Vec<rocket::Route> {
-    rocket::routes![login, change_password, logout]
+    rocket::routes![login, refresh_token, change_password, logout]
 }

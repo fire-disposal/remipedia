@@ -47,6 +47,7 @@ async fn build_rocket(settings: &Settings, pool: PgPool) -> Rocket<Build> {
         .manage(settings.jwt.clone())
         .manage(settings.mqtt.clone())
         .attach(Cors)
+        .mount("/", remipedia::api::routes::health::routes())
         .mount("/api/v1", routes())
 }
 

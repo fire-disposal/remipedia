@@ -37,8 +37,17 @@ pub enum AppError {
     #[error("配置错误: {0}")]
     ConfigError(String),
 
+    #[error("UUID 解析错误")]
+    UuidError,
+
     #[error("内部错误")]
     InternalError,
+}
+
+impl From<uuid::Error> for AppError {
+    fn from(_: uuid::Error) -> Self {
+        AppError::UuidError
+    }
 }
 
 pub type AppResult<T> = Result<T, AppError>;
@@ -55,6 +64,7 @@ impl<'r> Responder<'r, 'r> for AppError {
             AppError::InvalidPassword => Status::Unauthorized,
             AppError::UsernameExists => Status::Conflict,
             AppError::ConfigError(_) => Status::InternalServerError,
+            AppError::UuidError => Status::BadRequest,
             AppError::DatabaseError(_) => Status::InternalServerError,
             AppError::InternalError => Status::InternalServerError,
         };

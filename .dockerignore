@@ -1,0 +1,42 @@
+# Build artifacts
+target/
+**/*.rs.bk
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Git
+.git/
+.gitignore
+
+# Documentation
+*.md
+!README.md
+
+# CI/CD
+.github/
+.gitlab-ci.yml
+
+# Docker
+Dockerfile*
+docker-compose*.yml
+.dockerignore
+
+# Environment files
+.env
+.env.*
+*.local
+
+# Test files
+tests/
+**/test_*.rs
+**/*_test.rs
+
+# Misc
+.DS_Store
+Thumbs.db
+*.log
+*.tmp

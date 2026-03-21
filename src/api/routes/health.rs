@@ -26,19 +26,9 @@ pub async fn index() -> Json<serde_json::Value> {
     Json(serde_json::json!({
         "name": "Remipedia IoT Health Platform",
         "version": env!("CARGO_PKG_VERSION"),
-        "endpoints": {
-            "health": "/health",
-            "auth": {
-                "login": "POST /api/v1/auth/login",
-                "refresh": "POST /api/v1/auth/refresh",
-                "logout": "POST /api/v1/auth/logout"
-            },
-            "users": "/api/v1/users",
-            "patients": "/api/v1/patients",
-            "devices": "/api/v1/devices",
-            "bindings": "/api/v1/bindings",
-            "data": "/api/v1/data"
-        }
+        "status": "running",
+        "swagger_ui": "/swagger-ui/",
+        "openapi_json": "/api-docs/openapi.json"
     }))
 }
 

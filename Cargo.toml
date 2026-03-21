@@ -54,6 +54,10 @@ validator = { version = "0.18", features = ["derive"] }
 # 异步 trait
 async-trait = "0.1"
 
+# OpenAPI / Swagger
+utoipa = { version = "5", features = ["uuid", "chrono"] }
+utoipa-swagger-ui = { version = "9", features = ["rocket", "vendored"] }
+
 [dev-dependencies]
 tokio-test = "0.4"
 

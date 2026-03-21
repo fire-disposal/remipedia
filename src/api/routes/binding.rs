@@ -2,6 +2,7 @@ use rocket::serde::json::Json;
 use rocket::State;
 use rocket::{delete, get, post};
 use sqlx::PgPool;
+use utoipa::OpenApi;
 use uuid::Uuid;
 
 use crate::api::guards::AuthenticatedUser;
@@ -12,6 +13,24 @@ use crate::errors::{AppError, AppResult};
 use crate::service::BindingService;
 
 /// 查询绑定列表
+#[utoipa::path(
+    get,
+    path = "/bindings",
+    tag = "bindings",
+    security(
+        ("bearer_auth" = [])
+    ),
+    params(
+        ("device_id" = Option<String>, Query, description = "设备ID筛选"),
+        ("patient_id" = Option<String>, Query, description = "患者ID筛选"),
+        ("active_only" = Option<bool>, Query, description = "仅显示有效绑定"),
+        ("page" = Option<u32>, Query, description = "页码"),
+        ("page_size" = Option<u32>, Query, description = "每页数量"),
+    ),
+    responses(
+        (status = 200, description = "查询成功", body = BindingListResponse),
+    )
+)]
 #[get("/bindings?<device_id>&<patient_id>&<active_only>&<page>&<page_size>")]
 pub async fn list_bindings(
     pool: &State<PgPool>,
@@ -24,7 +43,7 @@ pub async fn list_bindings(
 ) -> AppResult<Json<BindingListResponse>> {
     let device_id = device_id.as_ref().and_then(|s| Uuid::parse_str(s).ok());
     let patient_id = patient_id.as_ref().and_then(|s| Uuid::parse_str(s).ok());
-    
+
     let service = BindingService::new(pool);
     let response = service.query(
         device_id,
@@ -37,6 +56,20 @@ pub async fn list_bindings(
 }
 
 /// 创建绑定
+#[utoipa::path(
+    post,
+    path = "/bindings",
+    tag = "bindings",
+    security(
+        ("bearer_auth" = [])
+    ),
+    request_body = CreateBindingRequest,
+    responses(
+        (status = 200, description = "绑定成功", body = BindingResponse),
+        (status = 400, description = "设备已有有效绑定"),
+        (status = 404, description = "设备或患者不存在"),
+    )
+)]
 #[post("/bindings", data = "<req>")]
 pub async fn create_binding(
     pool: &State<PgPool>,
@@ -49,6 +82,21 @@ pub async fn create_binding(
 }
 
 /// 解除绑定
+#[utoipa::path(
+    delete,
+    path = "/bindings/{id}",
+    tag = "bindings",
+    security(
+        ("bearer_auth" = [])
+    ),
+    params(
+        ("id" = String, Path, description = "绑定ID")
+    ),
+    responses(
+        (status = 200, description = "解除成功"),
+        (status = 404, description = "绑定不存在"),
+    )
+)]
 #[delete("/bindings/<id>")]
 pub async fn delete_binding(
     pool: &State<PgPool>,
@@ -61,60 +109,10 @@ pub async fn delete_binding(
     Ok(Json(serde_json::json!({ "success": true })))
 }
 
-/// 获取设备的当前绑定
-#[get("/bindings/device/<device_id>")]
-pub async fn get_device_binding(
-    pool: &State<PgPool>,
-    _user: AuthenticatedUser,
-    device_id: &str,
-) -> AppResult<Json<Option<BindingResponse>>> {
-    let device_id = Uuid::parse_str(device_id).map_err(|_| AppError::ValidationError("无效的设备 ID".into()))?;
-    let service = BindingService::new(pool);
-    let response = service.get_current_binding(&device_id).await?;
-    Ok(Json(response))
-}
-
-/// 获取设备的绑定历史
-#[get("/bindings/device/<device_id>/history?<page>&<page_size>")]
-pub async fn get_device_binding_history(
-    pool: &State<PgPool>,
-    _user: AuthenticatedUser,
-    device_id: &str,
-    page: Option<u32>,
-    page_size: Option<u32>,
-) -> AppResult<Json<BindingListResponse>> {
-    let device_id = Uuid::parse_str(device_id).map_err(|_| AppError::ValidationError("无效的设备 ID".into()))?;
-    let service = BindingService::new(pool);
-    let response = service.get_device_binding_history(
-        &device_id,
-        page.unwrap_or(1),
-        page_size.unwrap_or(20),
-    ).await?;
-    Ok(Json(response))
-}
-
-/// 获取患者的绑定历史
-#[get("/bindings/patient/<patient_id>/history?<page>&<page_size>")]
-pub async fn get_patient_binding_history(
-    pool: &State<PgPool>,
-    _user: AuthenticatedUser,
-    patient_id: &str,
-    page: Option<u32>,
-    page_size: Option<u32>,
-) -> AppResult<Json<BindingListResponse>> {
-    let patient_id = Uuid::parse_str(patient_id).map_err(|_| AppError::ValidationError("无效的患者 ID".into()))?;
-    let service = BindingService::new(pool);
-    let response = service.get_patient_binding_history(
-        &patient_id,
-        page.unwrap_or(1),
-        page_size.unwrap_or(20),
-    ).await?;
-    Ok(Json(response))
-}
-
 pub fn routes() -> Vec<rocket::Route> {
-    rocket::routes![
-        list_bindings, create_binding, delete_binding, get_device_binding,
-        get_device_binding_history, get_patient_binding_history
-    ]
+    rocket::routes![list_bindings, create_binding, delete_binding]
 }
+
+#[derive(OpenApi)]
+#[openapi(paths(list_bindings, create_binding, delete_binding))]
+pub struct BindingApiDoc;

@@ -2,6 +2,7 @@ use rocket::serde::json::Json;
 use rocket::State;
 use rocket::post;
 use sqlx::PgPool;
+use utoipa::OpenApi;
 
 use crate::api::guards::AuthenticatedUser;
 use crate::config::JwtConfig;
@@ -11,6 +12,16 @@ use crate::errors::AppResult;
 use crate::service::AuthService;
 
 /// 用户登录
+#[utoipa::path(
+    post,
+    path = "/auth/login",
+    tag = "auth",
+    request_body = LoginRequest,
+    responses(
+        (status = 200, description = "登录成功", body = LoginResponse),
+        (status = 401, description = "用户名或密码错误"),
+    )
+)]
 #[post("/auth/login", data = "<req>")]
 pub async fn login(
     pool: &State<PgPool>,
@@ -23,6 +34,16 @@ pub async fn login(
 }
 
 /// 刷新令牌
+#[utoipa::path(
+    post,
+    path = "/auth/refresh",
+    tag = "auth",
+    request_body = RefreshTokenRequest,
+    responses(
+        (status = 200, description = "刷新成功", body = RefreshTokenResponse),
+        (status = 401, description = "无效的刷新令牌"),
+    )
+)]
 #[post("/auth/refresh", data = "<req>")]
 pub async fn refresh_token(
     pool: &State<PgPool>,
@@ -35,6 +56,19 @@ pub async fn refresh_token(
 }
 
 /// 修改密码
+#[utoipa::path(
+    post,
+    path = "/auth/change-password",
+    tag = "auth",
+    security(
+        ("bearer_auth" = [])
+    ),
+    request_body = ChangePasswordRequest,
+    responses(
+        (status = 200, description = "密码修改成功"),
+        (status = 401, description = "认证失败或旧密码错误"),
+    )
+)]
 #[post("/auth/change-password", data = "<req>")]
 pub async fn change_password(
     pool: &State<PgPool>,
@@ -48,6 +82,19 @@ pub async fn change_password(
 }
 
 /// 登出
+#[utoipa::path(
+    post,
+    path = "/auth/logout",
+    tag = "auth",
+    security(
+        ("bearer_auth" = [])
+    ),
+    request_body = LogoutRequest,
+    responses(
+        (status = 200, description = "登出成功"),
+        (status = 401, description = "认证失败"),
+    )
+)]
 #[post("/auth/logout", data = "<req>")]
 pub async fn logout(
     pool: &State<PgPool>,
@@ -63,3 +110,7 @@ pub async fn logout(
 pub fn routes() -> Vec<rocket::Route> {
     rocket::routes![login, refresh_token, change_password, logout]
 }
+
+#[derive(OpenApi)]
+#[openapi(paths(login, refresh_token, change_password, logout))]
+pub struct AuthApiDoc;

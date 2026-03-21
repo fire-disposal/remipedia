@@ -7,6 +7,7 @@ use rocket::{Build, Rocket};
 use sqlx::postgres::PgPoolOptions;
 use sqlx::PgPool;
 
+use remipedia::api::swagger_ui;
 use remipedia::api::routes;
 use remipedia::config::Settings;
 use remipedia::ingest::MqttIngest;
@@ -49,6 +50,7 @@ async fn build_rocket(settings: &Settings, pool: PgPool) -> Rocket<Build> {
         .attach(Cors)
         .mount("/", remipedia::api::routes::health::routes())
         .mount("/api/v1", routes())
+        .mount("/", swagger_ui())
 }
 
 #[tokio::main]

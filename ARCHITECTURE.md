@@ -36,13 +36,28 @@
 | 组件 | 技术选型 | 版本要求 | 说明 |
 |------|---------|---------|------|
 | 配置管理 | **config** | 0.14.x | 多格式支持，环境变量覆盖 |
-| 日志 | **tracing** + **tracing-subscriber** | 0.1.x | 结构化日志，异步友好 |
+| 日志 | **log** + **env_logger** | 0.4.x / 0.11.x | 轻量级日志，环境变量控制 |
 | 错误处理 | **thiserror** | 2.x | 派生错误类型 |
 | 序列化 | **serde** + **serde_json** | 1.x | JSON 首选 |
 | 时间处理 | **chrono** | 0.4.x | 时区感知时间 |
 | UUID | **uuid** | 1.x | v7（时间排序）优先 |
 
-### 2.4 开发与测试
+### 2.4 认证与安全
+
+| 组件 | 技术选型 | 版本要求 | 说明 |
+|------|---------|---------|------|
+| JWT | **jsonwebtoken** | 10.x | HS256 算法 |
+| 密码哈希 | **argon2** | 0.5.x | 抗 GPU 破解 |
+| 哈希算法 | **sha2** | 0.10.x | SHA-256 |
+
+### 2.5 API 文档
+
+| 组件 | 技术选型 | 版本要求 | 说明 |
+|------|---------|---------|------|
+| OpenAPI | **utoipa** | 5.x | 自动生成 OpenAPI 规范 |
+| Swagger UI | **utoipa-swagger-ui** | 9.x | 交互式 API 文档 |
+
+### 2.6 开发与测试
 
 | 组件 | 技术选型 | 说明 |
 |------|---------|------|
@@ -67,7 +82,7 @@ rust-version = "1.75"
 rocket = { version = "0.5", features = ["json"] }
 
 # 数据库
-sqlx = { version = "0.8", features = ["runtime-tokio", "tls-rustls", "postgres", "chrono", "uuid", "json"] }
+sqlx = { version = "0.8", features = ["runtime-tokio", "tls-rustls", "postgres", "chrono", "uuid", "json", "macros"] }
 
 # 异步运行时
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "signal"] }
@@ -75,6 +90,7 @@ tokio = { version = "1", features = ["rt-multi-thread", "macros", "signal"] }
 # 序列化
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+base64 = "0.22"
 
 # 时间
 chrono = { version = "0.4", features = ["serde"] }
@@ -86,8 +102,8 @@ uuid = { version = "1", features = ["v7", "serde"] }
 config = "0.14"
 
 # 日志
-tracing = "0.1"
-tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+log = "0.4"
+env_logger = "0.11"
 
 # 错误处理
 thiserror = "2"
@@ -96,8 +112,24 @@ anyhow = "1"  # 仅用于应用启动阶段
 # MQTT（数据接入）
 rumqttc = "0.24"
 
-# 验证（可选）
+# 密码哈希
+argon2 = "0.5"
+
+# JWT
+jsonwebtoken = "10"
+
+# 哈希
+sha2 = "0.10"
+
+# 验证
 validator = { version = "0.18", features = ["derive"] }
+
+# 异步 trait
+async-trait = "0.1"
+
+# OpenAPI / Swagger
+utoipa = { version = "5", features = ["uuid", "chrono"] }
+utoipa-swagger-ui = { version = "9", features = ["rocket", "vendored"] }
 
 [dev-dependencies]
 # 测试
@@ -156,23 +188,33 @@ src/
 │
 ├── api/                    # HTTP 接口层（Rocket）
 │   ├── mod.rs
+│   ├── openapi.rs          # OpenAPI 文档配置
 │   ├── routes/             # 路由定义
 │   │   ├── mod.rs
-│   │   ├── device.rs       # 设备相关路由
+│   │   ├── auth.rs         # 认证相关路由
+│   │   ├── health.rs       # 健康检查路由
+│   │   ├── user.rs         # 用户相关路由
 │   │   ├── patient.rs      # 患者相关路由
+│   │   ├── device.rs       # 设备相关路由
+│   │   ├── binding.rs      # 绑定相关路由
 │   │   └── data.rs         # 数据上报/查询路由
 │   └── guards/              # 请求守卫（认证等）
-│       └── mod.rs
+│       ├── mod.rs
+│       └── auth.rs         # JWT 认证守卫
 │
 ├── service/                # 业务逻辑层
 │   ├── mod.rs
-│   ├── device.rs           # 设备管理服务
+│   ├── auth.rs             # 认证服务（JWT + Refresh Token）
+│   ├── user.rs             # 用户管理服务
 │   ├── patient.rs          # 患者管理服务
+│   ├── device.rs           # 设备管理服务
 │   ├── binding.rs          # 绑定关系服务
 │   └── data.rs             # 数据处理服务
 │
 ├── repository/             # 数据访问层（SQLx）
 │   ├── mod.rs
+│   ├── user.rs             # 用户 CRUD
+│   ├── refresh_token.rs    # 刷新令牌 CRUD
 │   ├── device.rs           # 设备 CRUD
 │   ├── patient.rs          # 患者 CRUD
 │   ├── binding.rs          # 绑定关系 CRUD
@@ -180,25 +222,37 @@ src/
 │
 ├── core/                   # 领域模型（纯 Rust，无外部依赖）
 │   ├── mod.rs
+│   ├── auth/               # 认证相关
+│   │   ├── mod.rs
+│   │   └── claims.rs       # JWT Claims 结构
 │   ├── entity/             # 实体定义
-│   │   ├── device.rs
+│   │   ├── mod.rs
+│   │   ├── user.rs
+│   │   ├── refresh_token.rs
 │   │   ├── patient.rs
+│   │   ├── device.rs
 │   │   ├── binding.rs
 │   │   └── datasheet.rs
 │   └── value_object/       # 值对象
-│       └── device_type.rs
-│
-├── db/                     # 数据库基础设施
-│   ├── mod.rs
-│   ├── pool.rs             # 连接池管理
-│   └── migration/           # Migration 文件（由 sqlx-cli 管理）
+│       ├── mod.rs
+│       ├── user_role.rs
+│       ├── device_type.rs
+│       └── data_type.rs
 │
 ├── dto/                    # 数据传输对象
 │   ├── mod.rs
 │   ├── request/            # 请求 DTO
+│   │   ├── mod.rs
+│   │   ├── auth.rs
+│   │   ├── user.rs
+│   │   ├── patient.rs
 │   │   ├── device.rs
 │   │   └── data.rs
 │   └── response/           # 响应 DTO
+│       ├── mod.rs
+│       ├── auth.rs
+│       ├── user.rs
+│       ├── patient.rs
 │       ├── device.rs
 │       └── data.rs
 │
@@ -212,21 +266,23 @@ src/
 │
 ├── ingest/                 # 数据接入（MQTT）
 │   ├── mod.rs
-│   └── mqtt_client.rs      # MQTT 客户端封装
+│   ├── mqtt_client.rs      # MQTT 客户端封装
+│   └── adapters/           # 设备适配器
+│       ├── mod.rs
+│       ├── adapter_trait.rs
+│       ├── heart_rate.rs
+│       ├── fall_detector.rs
+│       └── spo2.rs
 │
 └── utils/                  # 工具函数
     ├── mod.rs
     └── time.rs             # 时间处理工具
 
-tests/                      # 集成测试
-├── common/                 # 测试公共模块
-│   └── fixture.rs
-└── integration/            # 集成测试用例
-    └── device_test.rs
-
 migrations/                 # 数据库迁移文件
-├── 20240101000000_init.up.sql
-└── 20240101000000_init.down.sql
+├── 20260321000000_init.up.sql
+├── 20260321000000_init.down.sql
+├── 20260321100000_refresh_token.up.sql
+└── 20260321100000_refresh_token.down.sql
 ```
 
 ---
@@ -606,15 +662,13 @@ GET /api/v1/data?page=1&page_size=20&device_id=xxx&start_time=xxx&end_time=xxx
 
 ```rust
 // main.rs
-use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
+use log::LevelFilter;
 
 fn init_logging() {
-    tracing_subscriber::registry()
-        .with(
-            tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| "remipedia=debug,sqlx=warn".into()),
-        )
-        .with(tracing_subscriber::fmt::layer().json())
+    env_logger::Builder::from_env("RUST_LOG")
+        .filter_module("remipedia", LevelFilter::Debug)
+        .filter_module("sqlx", LevelFilter::Warn)
+        .filter_module("rocket", LevelFilter::Info)
         .init();
 }
 ```
@@ -629,20 +683,32 @@ fn init_logging() {
 | DEBUG | 开发调试信息 |
 | TRACE | 详细执行流程 |
 
-### 11.3 结构化日志示例
+### 11.3 日志使用示例
 
 ```rust
-use tracing::{info, instrument};
+use log::{info, debug, error};
 
-#[instrument(skip(pool))]
 pub async fn register_device(pool: &PgPool, req: RegisterDeviceRequest) -> AppResult<Device> {
     info!(
-        serial_number = %req.serial_number,
-        device_type = %req.device_type,
-        "注册新设备"
+        "注册新设备: serial={}, type={}",
+        req.serial_number,
+        req.device_type
     );
     // ...
 }
+```
+
+### 11.4 运行时控制
+
+```bash
+# 设置日志级别
+RUST_LOG=remipedia=debug,sqlx=warn cargo run
+
+# 仅显示错误
+RUST_LOG=error cargo run
+
+# 详细调试
+RUST_LOG=remipedia=trace cargo run
 ```
 
 ---

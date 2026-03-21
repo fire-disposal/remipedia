@@ -28,7 +28,8 @@
 | 决策点 | 选择 | 说明 |
 |--------|------|------|
 | 角色类型 | admin, user | 简单 RBAC，角色固定权限 |
-| 认证方式 | 用户名 + 密码 | 密码使用 bcrypt/argon2 哈希 |
+| 认证方式 | JWT + Refresh Token | Access Token 2小时，Refresh Token 7天 |
+| 密码哈希 | argon2 | 抗 GPU 破解 |
 | 用户-患者绑定 | 预留表 | `user_patient_binding` 表，未来支持用户访问患者数据 |
 
 ---
@@ -42,9 +43,11 @@ src/
 │
 ├── api/                        # HTTP 接口层（Rocket）
 │   ├── mod.rs
+│   ├── openapi.rs              # OpenAPI 文档配置
 │   ├── routes/
 │   │   ├── mod.rs
 │   │   ├── auth.rs             # 登录/登出
+│   │   ├── health.rs           # 健康检查
 │   │   ├── user.rs             # 用户管理
 │   │   ├── patient.rs          # 患者管理
 │   │   ├── device.rs           # 设备管理
@@ -52,11 +55,11 @@ src/
 │   │   └── data.rs             # 数据上报/查询
 │   └── guards/
 │       ├── mod.rs
-│       └── auth.rs             # 认证守卫
+│       └── auth.rs             # JWT 认证守卫
 │
 ├── service/                    # 业务逻辑层
 │   ├── mod.rs
-│   ├── auth.rs                 # 认证服务
+│   ├── auth.rs                 # 认证服务（JWT + Refresh Token）
 │   ├── user.rs                 # 用户服务
 │   ├── patient.rs              # 患者服务
 │   ├── device.rs               # 设备服务
@@ -66,6 +69,7 @@ src/
 ├── repository/                 # 数据访问层（SQLx）
 │   ├── mod.rs
 │   ├── user.rs
+│   ├── refresh_token.rs        # 刷新令牌 CRUD
 │   ├── patient.rs
 │   ├── device.rs
 │   ├── binding.rs
@@ -73,9 +77,13 @@ src/
 │
 ├── core/                       # 领域模型（纯 Rust）
 │   ├── mod.rs
+│   ├── auth/                   # 认证相关
+│   │   ├── mod.rs
+│   │   └── claims.rs           # JWT Claims
 │   ├── entity/
 │   │   ├── mod.rs
 │   │   ├── user.rs
+│   │   ├── refresh_token.rs
 │   │   ├── patient.rs
 │   │   ├── device.rs
 │   │   ├── binding.rs
@@ -389,7 +397,7 @@ use crate::core::value_object::DeviceType;
 use crate::dto::request::RegisterDeviceRequest;
 use crate::errors::{AppError, AppResult};
 use sqlx::PgPool;
-use tracing::{info, instrument};
+use log::info;
 
 pub struct DeviceService<'a> {
     device_repo: DeviceRepository<'a>,
@@ -404,7 +412,7 @@ impl<'a> DeviceService<'a> {
     
     /// 自动注册或获取设备
     /// 如果设备不存在，根据序列号自动创建
-    #[instrument(skip(self), fields(serial_number = %serial_number))]
+    // 日志: info!("设备自动注册: serial={}", serial_number);
     pub async fn auto_register_or_get(
         &self,
         serial_number: &str,
@@ -412,7 +420,7 @@ impl<'a> DeviceService<'a> {
     ) -> AppResult<Device> {
         // 1. 尝试查找现有设备
         if let Some(device) = self.device_repo.find_by_serial(serial_number).await? {
-            info!(device_id = %device.id, "设备已存在");
+            info!("设备已存在: device_id={}", device.id);
             return Ok(device);
         }
         
@@ -431,9 +439,9 @@ impl<'a> DeviceService<'a> {
         }).await?;
         
         info!(
-            device_id = %device.id,
-            device_type = %device_type,
-            "设备自动注册成功"
+            "设备自动注册成功: device_id={}, device_type={}",
+            device.id,
+            device_type
         );
         
         Ok(device)
@@ -501,7 +509,7 @@ use crate::ingest::adapters::AdapterRegistry;
 use crate::core::value_object::DeviceType;
 use crate::errors::{AppError, AppResult};
 use sqlx::PgPool;
-use tracing::{error, info, warn};
+use log::{error, info, warn};
 
 pub struct MqttIngest<'a> {
     client: AsyncClient,
@@ -1104,7 +1112,7 @@ impl<'r> Responder<'r, 'r> for AppError {
 | **自动注册** | 在数据接入时触发 | 根据序列号判断是否需要创建 |
 | **数据归属** | 写入时确定 subject_id | 通过 binding 服务查询当前绑定 |
 | **错误处理** | 使用 AppError 统一类型 | Repository 层转换 sqlx::Error |
-| **日志记录** | 关键操作使用 tracing | 包含设备 ID、序列号等上下文 |
+| **日志记录** | 关键操作使用 log | 包含设备 ID、序列号等上下文 |
 | **事务处理** | 绑定/解绑操作可能需要事务 | 确保数据一致性 |
 | **SQL 归属** | 所有 SQL 只在 Repository 层 | 禁止跨层调用 |
 | **参数绑定** | 必须使用参数化查询 | 禁止字符串拼接 SQL |

@@ -1,5 +1,5 @@
+use log::info;
 use sqlx::PgPool;
-use tracing::{info, instrument};
 use uuid::Uuid;
 
 use crate::core::entity::NewDevice;
@@ -23,7 +23,6 @@ impl<'a> DeviceService<'a> {
     }
 
     /// 注册设备
-    #[instrument(skip(self))]
     pub async fn register(&self, req: RegisterDeviceRequest) -> AppResult<DeviceResponse> {
         // 验证设备类型
         DeviceType::from_str(&req.device_type)
@@ -42,13 +41,12 @@ impl<'a> DeviceService<'a> {
             metadata: req.metadata,
         }).await?;
 
-        info!(device_id = %device.id, serial_number = %device.serial_number, "设备注册成功");
+        info!("设备注册成功: device_id={}, serial_number={}", device.id, device.serial_number);
 
         Ok(device.into())
     }
 
     /// 自动注册或获取设备
-    #[instrument(skip(self), fields(serial_number = %serial_number))]
     pub async fn auto_register_or_get(
         &self,
         serial_number: &str,
@@ -56,7 +54,7 @@ impl<'a> DeviceService<'a> {
     ) -> AppResult<crate::core::entity::Device> {
         // 尝试查找现有设备
         if let Some(device) = self.device_repo.find_by_serial(serial_number).await? {
-            info!(device_id = %device.id, "设备已存在");
+            info!("设备已存在: device_id={}", device.id);
             return Ok(device);
         }
 
@@ -71,9 +69,8 @@ impl<'a> DeviceService<'a> {
         )).await?;
 
         info!(
-            device_id = %device.id,
-            device_type = %device_type,
-            "设备自动注册成功"
+            "设备自动注册成功: device_id={}, device_type={}",
+            device.id, device_type
         );
 
         Ok(device)
@@ -110,7 +107,7 @@ impl<'a> DeviceService<'a> {
             req.metadata.as_ref(),
         ).await?;
 
-        info!(device_id = %id, "设备更新成功");
+        info!("设备更新成功: device_id={}", id);
 
         Ok(device.into())
     }
@@ -118,7 +115,7 @@ impl<'a> DeviceService<'a> {
     /// 更新设备状态
     pub async fn update_status(&self, id: &Uuid, status: &str) -> AppResult<DeviceResponse> {
         let device = self.device_repo.update_status(id, status).await?;
-        info!(device_id = %id, status = %status, "设备状态更新成功");
+        info!("设备状态更新成功: device_id={}, status={}", id, status);
         Ok(device.into())
     }
 
@@ -177,7 +174,7 @@ impl<'a> DeviceService<'a> {
     /// 删除设备
     pub async fn delete(&self, id: &Uuid) -> AppResult<()> {
         self.device_repo.delete(id).await?;
-        info!(device_id = %id, "设备删除成功");
+        info!("设备删除成功: device_id={}", id);
         Ok(())
     }
 }

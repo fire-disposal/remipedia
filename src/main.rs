@@ -1,11 +1,11 @@
 use std::sync::Arc;
 
+use log::info;
 use rocket::fairing::{Fairing, Info, Kind};
 use rocket::http::Header;
 use rocket::{Build, Rocket};
 use sqlx::postgres::PgPoolOptions;
-use tracing::info;
-use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
+use sqlx::PgPool;
 
 use remipedia::api::routes;
 use remipedia::config::Settings;
@@ -33,17 +33,15 @@ impl Fairing for Cors {
 
 /// 初始化日志
 fn init_logging() {
-    tracing_subscriber::registry()
-        .with(
-            tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| "remipedia=debug,sqlx=warn,rocket=info".into()),
-        )
-        .with(tracing_subscriber::fmt::layer())
+    env_logger::Builder::from_env("RUST_LOG")
+        .filter_module("remipedia", log::LevelFilter::Debug)
+        .filter_module("sqlx", log::LevelFilter::Warn)
+        .filter_module("rocket", log::LevelFilter::Info)
         .init();
 }
 
 /// 创建 Rocket 应用
-async fn build_rocket(settings: &Settings, pool: Arc<sqlx::PgPool>) -> Rocket<Build> {
+async fn build_rocket(settings: &Settings, pool: PgPool) -> Rocket<Build> {
     rocket::build()
         .manage(pool)
         .manage(settings.jwt.clone())
@@ -75,13 +73,11 @@ async fn main() -> anyhow::Result<()> {
 
     info!("🔌 数据库连接池创建成功");
 
-    let pool = Arc::new(pool);
-
     // 启动 MQTT 客户端（如果启用）
     if settings.mqtt.enabled {
-        let mqtt_pool = pool.clone();
+        let mqtt_pool = Arc::new(pool.clone());
         let mqtt_config = settings.mqtt.clone();
-        
+
         tokio::spawn(async move {
             info!("📡 MQTT 客户端启动中...");
             let mqtt_client = MqttIngest::new(mqtt_pool, &mqtt_config).await;

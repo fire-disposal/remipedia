@@ -1,5 +1,5 @@
+use log::info;
 use sqlx::PgPool;
-use tracing::{info, instrument};
 use uuid::Uuid;
 
 use crate::core::entity::NewUser;
@@ -22,7 +22,6 @@ impl<'a> UserService<'a> {
     }
 
     /// 创建用户
-    #[instrument(skip(self))]
     pub async fn create(&self, req: CreateUserRequest) -> AppResult<UserResponse> {
         // 验证角色
         UserRole::from_str(&req.role)
@@ -45,7 +44,7 @@ impl<'a> UserService<'a> {
             email: req.email,
         }).await?;
 
-        info!(user_id = %user.id, username = %user.username, "用户创建成功");
+        info!("用户创建成功: user_id={}, username={}", user.id, user.username);
 
         Ok(user.into())
     }
@@ -99,7 +98,7 @@ impl<'a> UserService<'a> {
     /// 删除用户
     pub async fn delete(&self, id: &Uuid) -> AppResult<()> {
         self.user_repo.delete(id).await?;
-        info!(user_id = %id, "用户删除成功");
+        info!("用户删除成功: user_id={}", id);
         Ok(())
     }
 }

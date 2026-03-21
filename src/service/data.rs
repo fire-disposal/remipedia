@@ -1,6 +1,6 @@
 use chrono::Utc;
+use log::info;
 use sqlx::PgPool;
-use tracing::{info, instrument};
 use uuid::Uuid;
 
 use crate::core::entity::IngestData;
@@ -29,10 +29,8 @@ impl<'a> DataService<'a> {
         let result = self.data_repo.insert(&data).await?;
         
         info!(
-            device_id = %result.device_id,
-            subject_id = ?result.subject_id,
-            data_type = %result.data_type,
-            "数据入库成功"
+            "数据入库成功: device_id={}, subject_id={:?}, data_type={}",
+            result.device_id, result.subject_id, result.data_type
         );
 
         Ok(DataReportResponse {
@@ -43,7 +41,6 @@ impl<'a> DataService<'a> {
     }
 
     /// HTTP 数据上报
-    #[instrument(skip(self))]
     pub async fn report_http(&self, req: DataReportRequest) -> AppResult<DataReportResponse> {
         // 验证设备存在
         self.device_repo.find_by_id(&req.device_id).await?;

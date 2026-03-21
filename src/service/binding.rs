@@ -1,6 +1,6 @@
 use chrono::Utc;
+use log::info;
 use sqlx::PgPool;
-use tracing::{info, instrument};
 use uuid::Uuid;
 
 use crate::core::entity::NewBinding;
@@ -25,7 +25,6 @@ impl<'a> BindingService<'a> {
     }
 
     /// 创建绑定
-    #[instrument(skip(self))]
     pub async fn bind(&self, req: CreateBindingRequest) -> AppResult<BindingResponse> {
         // 验证设备存在
         self.device_repo.find_by_id(&req.device_id).await?;
@@ -45,10 +44,8 @@ impl<'a> BindingService<'a> {
         }).await?;
 
         info!(
-            binding_id = %binding.id,
-            device_id = %binding.device_id,
-            patient_id = %binding.patient_id,
-            "绑定创建成功"
+            "绑定创建成功: binding_id={}, device_id={}, patient_id={}",
+            binding.id, binding.device_id, binding.patient_id
         );
 
         Ok(binding.into())
@@ -57,7 +54,7 @@ impl<'a> BindingService<'a> {
     /// 解除绑定
     pub async fn unbind(&self, binding_id: &Uuid) -> AppResult<()> {
         self.binding_repo.end_binding(binding_id, Utc::now()).await?;
-        info!(binding_id = %binding_id, "绑定解除成功");
+        info!("绑定解除成功: binding_id={}", binding_id);
         Ok(())
     }
 

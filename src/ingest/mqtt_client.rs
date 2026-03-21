@@ -1,7 +1,7 @@
+use log::{error, info, warn};
 use rumqttc::{AsyncClient, Event, Incoming, MqttOptions, QoS};
 use sqlx::PgPool;
 use std::sync::Arc;
-use tracing::{error, info, warn};
 
 use crate::config::MqttConfig;
 use crate::core::value_object::DeviceType;
@@ -52,7 +52,7 @@ impl MqttIngest {
     pub async fn subscribe(&self) {
         let topic = format!("{}/+/data", self.topic_prefix);
         self.client.subscribe(&topic, QoS::AtLeastOnce).await.unwrap();
-        info!(topic = %topic, "已订阅 MQTT 主题");
+        info!("已订阅 MQTT 主题: {}", topic);
     }
 
     /// 处理消息
@@ -63,7 +63,7 @@ impl MqttIngest {
         payload: &[u8],
     ) {
         if let Err(e) = Self::process_message(pool, topic_prefix, topic, payload).await {
-            error!(error = %e, topic = %topic, "处理 MQTT 消息失败");
+            error!("处理 MQTT 消息失败: {}, topic: {}", e, topic);
         }
     }
 
@@ -135,10 +135,8 @@ impl MqttIngest {
         }).await?;
 
         info!(
-            device_id = %device.id,
-            subject_id = ?subject_id,
-            data_type = %adapter.data_type(),
-            "数据入库成功"
+            "数据入库成功: device_id={}, subject_id={:?}, data_type={}",
+            device.id, subject_id, adapter.data_type()
         );
 
         Ok(())

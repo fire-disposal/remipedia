@@ -1,7 +1,7 @@
 use argon2::{password_hash::{rand_core::OsRng, PasswordHash, PasswordHasher, PasswordVerifier, SaltString}, Argon2};
 use chrono::{Duration, Utc};
+use log::info;
 use sqlx::PgPool;
-use tracing::{info, instrument};
 use uuid::Uuid;
 
 use crate::config::JwtConfig;
@@ -25,7 +25,6 @@ impl<'a> AuthService<'a> {
     }
 
     /// 用户登录
-    #[instrument(skip(self), fields(username = %req.username))]
     pub async fn login(&self, req: LoginRequest) -> AppResult<LoginResponse> {
         // 查找用户
         let user = self.user_repo.find_by_username(&req.username).await?
@@ -51,7 +50,7 @@ impl<'a> AuthService<'a> {
         let expires_at = Utc::now() + Duration::hours(self.jwt_config.expiration_hours as i64);
         let token = self.generate_token(&user.id, &user.role, expires_at)?;
 
-        info!(user_id = %user.id, "用户登录成功");
+        info!("用户登录成功: user_id={}", user.id);
 
         Ok(LoginResponse {
             success: true,
@@ -66,7 +65,6 @@ impl<'a> AuthService<'a> {
     }
 
     /// 修改密码
-    #[instrument(skip(self))]
     pub async fn change_password(&self, user_id: &Uuid, req: ChangePasswordRequest) -> AppResult<()> {
         let user = self.user_repo.find_by_id(user_id).await?;
 
@@ -84,7 +82,7 @@ impl<'a> AuthService<'a> {
         // 更新密码
         self.user_repo.update_password(user_id, &new_hash).await?;
 
-        info!(user_id = %user_id, "密码修改成功");
+        info!("密码修改成功: user_id={}", user_id);
 
         Ok(())
     }

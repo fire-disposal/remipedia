@@ -1,5 +1,5 @@
+use log::info;
 use sqlx::PgPool;
-use tracing::{info, instrument};
 use uuid::Uuid;
 
 use crate::core::entity::{NewPatient, NewPatientProfile};
@@ -20,7 +20,6 @@ impl<'a> PatientService<'a> {
     }
 
     /// 创建患者
-    #[instrument(skip(self))]
     pub async fn create(&self, req: CreatePatientRequest) -> AppResult<PatientResponse> {
         // 检查外部 ID 是否已存在
         if let Some(ref external_id) = req.external_id {
@@ -34,7 +33,7 @@ impl<'a> PatientService<'a> {
             external_id: req.external_id,
         }).await?;
 
-        info!(patient_id = %patient.id, name = %patient.name, "患者创建成功");
+        info!("患者创建成功: patient_id={}, name={}", patient.id, patient.name);
 
         Ok(patient.into())
     }
@@ -67,7 +66,7 @@ impl<'a> PatientService<'a> {
             req.external_id.as_deref(),
         ).await?;
 
-        info!(patient_id = %id, "患者更新成功");
+        info!("患者更新成功: patient_id={}", id);
 
         Ok(patient.into())
     }
@@ -107,7 +106,7 @@ impl<'a> PatientService<'a> {
     /// 删除患者
     pub async fn delete(&self, id: &Uuid) -> AppResult<()> {
         self.patient_repo.delete(id).await?;
-        info!(patient_id = %id, "患者删除成功");
+        info!("患者删除成功: patient_id={}", id);
         Ok(())
     }
 
@@ -139,7 +138,7 @@ impl<'a> PatientService<'a> {
             metadata: req.metadata,
         }).await?;
 
-        info!(patient_id = %patient_id, "患者档案创建成功");
+        info!("患者档案创建成功: patient_id={}", patient_id);
 
         Ok(profile.into())
     }

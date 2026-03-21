@@ -1,0 +1,199 @@
+use sqlx::PgPool;
+use tracing::{info, instrument};
+use uuid::Uuid;
+
+use crate::core::entity::NewDevice;
+use crate::core::value_object::DeviceType;
+use crate::dto::request::{DeviceQuery, RegisterDeviceRequest, UpdateDeviceRequest};
+use crate::dto::response::{BindingInfo, DeviceListResponse, DeviceResponse, Pagination};
+use crate::errors::{AppError, AppResult};
+use crate::repository::{BindingRepository, DeviceRepository};
+
+pub struct DeviceService<'a> {
+    device_repo: DeviceRepository<'a>,
+    binding_repo: BindingRepository<'a>,
+}
+
+impl<'a> DeviceService<'a> {
+    pub fn new(pool: &'a PgPool) -> Self {
+        Self {
+            device_repo: DeviceRepository::new(pool),
+            binding_repo: BindingRepository::new(pool),
+        }
+    }
+
+    /// 注册设备
+    #[instrument(skip(self))]
+    pub async fn register(&self, req: RegisterDeviceRequest) -> AppResult<DeviceResponse> {
+        // 验证设备类型
+        DeviceType::from_str(&req.device_type)
+            .ok_or_else(|| AppError::ValidationError(format!("未知设备类型: {}", req.device_type)))?;
+
+        // 检查序列号是否已存在
+        if self.device_repo.exists_by_serial(&req.serial_number).await? {
+            return Err(AppError::ValidationError("设备序列号已存在".into()));
+        }
+
+        let device = self.device_repo.insert(&NewDevice {
+            serial_number: req.serial_number,
+            device_type: req.device_type,
+            firmware_version: req.firmware_version,
+            status: "active".to_string(),
+            metadata: req.metadata,
+        }).await?;
+
+        info!(device_id = %device.id, serial_number = %device.serial_number, "设备注册成功");
+
+        Ok(device.into())
+    }
+
+    /// 自动注册或获取设备
+    #[instrument(skip(self), fields(serial_number = %serial_number))]
+    pub async fn auto_register_or_get(
+        &self,
+        serial_number: &str,
+        device_type: &str,
+    ) -> AppResult<crate::core::entity::Device> {
+        // 尝试查找现有设备
+        if let Some(device) = self.device_repo.find_by_serial(serial_number).await? {
+            info!(device_id = %device.id, "设备已存在");
+            return Ok(device);
+        }
+
+        // 验证设备类型
+        let dev_type = DeviceType::from_str(device_type)
+            .ok_or_else(|| AppError::ValidationError(format!("未知设备类型: {}", device_type)))?;
+
+        // 自动创建设备
+        let device = self.device_repo.insert(&NewDevice::new(
+            serial_number.to_string(),
+            dev_type.as_str().to_string(),
+        )).await?;
+
+        info!(
+            device_id = %device.id,
+            device_type = %device_type,
+            "设备自动注册成功"
+        );
+
+        Ok(device)
+    }
+
+    /// 获取设备
+    pub async fn get_by_id(&self, id: &Uuid) -> AppResult<DeviceResponse> {
+        let device = self.device_repo.find_by_id(id).await?;
+        let binding = self.binding_repo.find_active_by_device(id).await?;
+
+        Ok(DeviceResponse {
+            id: device.id,
+            serial_number: device.serial_number,
+            device_type: device.device_type,
+            firmware_version: device.firmware_version,
+            status: device.status,
+            metadata: device.metadata,
+            created_at: device.created_at,
+            current_binding: binding.map(|b| BindingInfo {
+                binding_id: b.id,
+                patient_id: b.patient_id,
+                patient_name: None,
+                started_at: b.started_at,
+            }),
+        })
+    }
+
+    /// 更新设备
+    pub async fn update(&self, id: &Uuid, req: UpdateDeviceRequest) -> AppResult<DeviceResponse> {
+        let device = self.device_repo.update(
+            id,
+            req.firmware_version.as_deref(),
+            req.status.as_deref(),
+            req.metadata.as_ref(),
+        ).await?;
+
+        info!(device_id = %id, "设备更新成功");
+
+        Ok(device.into())
+    }
+
+    /// 更新设备状态
+    pub async fn update_status(&self, id: &Uuid, status: &str) -> AppResult<DeviceResponse> {
+        let device = self.device_repo.update_status(id, status).await?;
+        info!(device_id = %id, status = %status, "设备状态更新成功");
+        Ok(device.into())
+    }
+
+    /// 查询设备列表
+    pub async fn query(&self, query: DeviceQuery) -> AppResult<DeviceListResponse> {
+        let page = query.page.unwrap_or(1);
+        let page_size = query.page_size.unwrap_or(20);
+        let limit = page_size as i64;
+        let offset = ((page - 1) * page_size) as i64;
+
+        let devices = self.device_repo.find_all(
+            query.device_type.as_deref(),
+            query.status.as_deref(),
+            query.serial_number.as_deref(),
+            limit,
+            offset,
+        ).await?;
+
+        let total = self.device_repo.count(
+            query.device_type.as_deref(),
+            query.status.as_deref(),
+            query.serial_number.as_deref(),
+        ).await?;
+
+        let mut data = Vec::with_capacity(devices.len());
+        for device in devices {
+            let binding = self.binding_repo.find_active_by_device(&device.id).await?;
+            data.push(DeviceResponse {
+                id: device.id,
+                serial_number: device.serial_number,
+                device_type: device.device_type,
+                firmware_version: device.firmware_version,
+                status: device.status,
+                metadata: device.metadata,
+                created_at: device.created_at,
+                current_binding: binding.map(|b| BindingInfo {
+                    binding_id: b.id,
+                    patient_id: b.patient_id,
+                    patient_name: None,
+                    started_at: b.started_at,
+                }),
+            });
+        }
+
+        Ok(DeviceListResponse {
+            data,
+            pagination: Pagination {
+                page,
+                page_size,
+                total,
+                total_pages: (total + limit - 1) / limit,
+            },
+        })
+    }
+
+    /// 删除设备
+    pub async fn delete(&self, id: &Uuid) -> AppResult<()> {
+        self.device_repo.delete(id).await?;
+        info!(device_id = %id, "设备删除成功");
+        Ok(())
+    }
+}
+
+// 实体到响应的转换
+impl From<crate::core::entity::Device> for DeviceResponse {
+    fn from(device: crate::core::entity::Device) -> Self {
+        Self {
+            id: device.id,
+            serial_number: device.serial_number,
+            device_type: device.device_type,
+            firmware_version: device.firmware_version,
+            status: device.status,
+            metadata: device.metadata,
+            created_at: device.created_at,
+            current_binding: None,
+        }
+    }
+}

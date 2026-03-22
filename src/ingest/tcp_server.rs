@@ -176,16 +176,19 @@ impl TcpServer {
         };
         
         // 处理智能过滤后的事件，只存储有价值的数据
-        if let Some(events) = payload["valuable_events"].as_array() {
+        if let Some(events) = payload["mattress_events"].as_array() {
             let mut event_count = 0;
             
             for event_data in events {
                 let event_type = event_data["type"].as_str().unwrap_or("unknown");
                 let data_type = match event_type {
                     "BedEntry" => "bed_entry_event",
-                    "BedExit" => "bed_exit_event", 
+                    "BedExit" => "bed_exit_event",
                     "SignificantMovement" => "significant_movement_event",
-                    "MeasurementSnapshot" => "measurement_snapshot",
+                    "VitalSignsAnomaly" => "vital_signs_anomaly_event",
+                    "ApneaEvent" => "apnea_event",
+                    "MoistureAlert" => "moisture_alert_event",
+                    "ScheduledMeasurement" => "scheduled_measurement_event",
                     _ => continue,
                 };
                 
@@ -202,7 +205,7 @@ impl TcpServer {
                 event_count += 1;
             }
             
-            info!("智能床垫有价值事件入库成功: device_id={}, events={}, subject_id={:?}", 
+            info!("智能床垫事件驱动数据入库成功: device_id={}, events={}, subject_id={:?}",
                   device.id, event_count, subject_id);
         }
         

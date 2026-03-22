@@ -48,15 +48,13 @@ check_dependencies() {
 create_env_file() {
     if [[ ! -f "$ENV_FILE" ]]; then
         log "创建环境配置文件..."
+        
         cat > "$ENV_FILE" << EOF
 # 🔑 数据库配置
 DB_PASSWORD=$(openssl rand -base64 32)
 
 # 🔐 JWT 配置
 JWT_SECRET=$(openssl rand -base64 64)
-
-# 📊 监控配置
-GRAFANA_PASSWORD=$(openssl rand -base64 16)
 
 # 🏷️ 应用配置
 APP_ENV=production

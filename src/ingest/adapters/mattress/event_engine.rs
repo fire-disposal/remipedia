@@ -555,7 +555,7 @@ impl MattressEventEngine {
         confidence.min(1.0)
     }
     
-    fn calculate_bed_duration(&self, timestamp: DateTime<Utc>) -> f32 {
+    fn calculate_bed_duration(&self, _timestamp: DateTime<Utc>) -> f32 {
         // 简化的持续时间计算，实际应该基于上床时间
         30.0 // 默认30分钟，实际应该根据实际上床时间计算
     }

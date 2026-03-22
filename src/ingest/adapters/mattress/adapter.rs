@@ -1,7 +1,6 @@
 use crate::errors::{AppError, AppResult};
 use crate::ingest::adapters::{DeviceAdapter, mattress::event_engine::MattressEventEngine, mattress::types::{TurnOverState, MattressData}};
 use crc::{Crc, CRC_8_SMBUS};
-use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::sync::Mutex;
 

@@ -48,6 +48,7 @@ jobs:
           tags: |
             ${{ env.REGISTRY }}/${{ env.IMAGE }}:latest
             ${{ env.REGISTRY }}/${{ env.IMAGE }}:${{ github.sha }}
+            ${{ env.REGISTRY }}/${{ env.IMAGE }}:${{ github.ref_name }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
       
@@ -70,7 +71,7 @@ jobs:
           chmod 600 ~/.ssh/deploy_key
           
           # SSH到服务器执行部署
-          ssh -o StrictHostKeyChecking=no -i ~/.ssh/deploy_key $DEPLOY_USER@$DEPLOY_HOST << 'ENDSSH'
+          ssh -o StrictHostKeyChecking=no -i ~/.ssh/deploy_key $DEPLOY_USER@$DEPLOY_HOST << ENDSSH
             set -euo pipefail
             
             echo "📦 登录GitHub Container Registry"
@@ -79,21 +80,16 @@ jobs:
             echo "📁 进入部署目录"
             cd $DEPLOY_PATH
             
-            echo "🔄 拉取最新代码"
-            git fetch --all
-            git checkout ${{ github.ref_name }}
-            git pull origin ${{ github.ref_name }}
-            
             echo "📝 更新docker-compose.yml中的镜像版本"
             sed -i "s|image: ${{ env.REGISTRY }}/${{ env.IMAGE }}:.*|image: ${{ env.REGISTRY }}/${{ env.IMAGE }}:${{ github.ref_name }}|g" docker-compose.yml
             
             echo "🔐 创建环境配置文件"
             cat > .env.prod << EOF
           # 🔑 数据库配置
-          DB_PASSWORD=$DB_PASSWORD
+          DB_PASSWORD=${DB_PASSWORD}
           
           # 🔐 JWT 配置
-          JWT_SECRET=$JWT_SECRET
+          JWT_SECRET=${JWT_SECRET}
           
           # 🏷️ 应用配置
           APP_ENV=production
@@ -101,15 +97,15 @@ jobs:
           APP_TCP_PORT=5858
           
           # 🐳 Docker镜像配置
-          REGISTRY=${{ env.REGISTRY }}
-          IMAGE=${{ env.REGISTRY }}/${{ env.IMAGE }}
-          IMAGE_TAG=${{ github.ref_name }}
+          REGISTRY=${REGISTRY}
+          IMAGE=${REGISTRY}/${IMAGE}
+          IMAGE_TAG=${GITHUB_REF_NAME}
           EOF
             
             echo " 设置环境变量"
-            export REGISTRY="${{ env.REGISTRY }}"
-            export IMAGE="${{ env.IMAGE }}"
-            export IMAGE_TAG="${{ github.ref_name }}"
+            export REGISTRY="${REGISTRY}"
+            export IMAGE="${IMAGE}"
+            export IMAGE_TAG="${GITHUB_REF_NAME}"
             
             echo "🎯 执行部署脚本"
             chmod +x deploy.sh

@@ -84,7 +84,21 @@ backup_data() {
 # 拉取最新镜像
 pull_images() {
     log "拉取最新镜像..."
-    docker-compose pull
+    
+    # 获取环境变量中的镜像配置
+    local registry="${REGISTRY:-ghcr.io}"
+    local image="${IMAGE:-remipedia/remipedia-iot}"
+    local tag="${IMAGE_TAG:-latest}"
+    
+    log "拉取镜像: ${registry}/${image}:${tag}"
+    docker pull "${registry}/${image}:${tag}"
+    
+    # 更新docker-compose.yml中的镜像引用
+    if [[ -f "docker-compose.yml" ]]; then
+        sed -i "s|image:.*remipedia-iot.*|image: ${registry}/${image}:${tag}|g" docker-compose.yml
+        log "已更新 docker-compose.yml 镜像版本"
+    fi
+    
     success "镜像拉取完成"
 }
 

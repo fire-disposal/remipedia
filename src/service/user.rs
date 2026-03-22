@@ -36,15 +36,21 @@ impl<'a> UserService<'a> {
         let password_hash = AuthService::hash_password(&req.password)?;
 
         // 创建用户
-        let user = self.user_repo.insert(&NewUser {
-            username: req.username,
-            password_hash,
-            role: req.role,
-            phone: req.phone,
-            email: req.email,
-        }).await?;
+        let user = self
+            .user_repo
+            .insert(&NewUser {
+                username: req.username,
+                password_hash,
+                role: req.role,
+                phone: req.phone,
+                email: req.email,
+            })
+            .await?;
 
-        info!("用户创建成功: user_id={}, username={}", user.id, user.username);
+        info!(
+            "用户创建成功: user_id={}, username={}",
+            user.id, user.username
+        );
 
         Ok(user.into())
     }
@@ -70,17 +76,20 @@ impl<'a> UserService<'a> {
         let limit = page_size as i64;
         let offset = ((page - 1) * page_size) as i64;
 
-        let users = self.user_repo.find_all(
-            query.role.as_deref(),
-            query.status.as_deref(),
-            limit,
-            offset,
-        ).await?;
+        let users = self
+            .user_repo
+            .find_all(
+                query.role.as_deref(),
+                query.status.as_deref(),
+                limit,
+                offset,
+            )
+            .await?;
 
-        let total = self.user_repo.count(
-            query.role.as_deref(),
-            query.status.as_deref(),
-        ).await?;
+        let total = self
+            .user_repo
+            .count(query.role.as_deref(), query.status.as_deref())
+            .await?;
 
         let data: Vec<UserResponse> = users.into_iter().map(|u| u.into()).collect();
 

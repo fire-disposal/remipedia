@@ -3,8 +3,12 @@ use sqlx::PgPool;
 use uuid::Uuid;
 
 use crate::core::entity::{NewPatient, NewPatientProfile};
-use crate::dto::request::{CreatePatientProfileRequest, CreatePatientRequest, PatientQuery, UpdatePatientRequest};
-use crate::dto::response::{Pagination, PatientDetailResponse, PatientListResponse, PatientProfileResponse, PatientResponse};
+use crate::dto::request::{
+    CreatePatientProfileRequest, CreatePatientRequest, PatientQuery, UpdatePatientRequest,
+};
+use crate::dto::response::{
+    Pagination, PatientDetailResponse, PatientListResponse, PatientProfileResponse, PatientResponse,
+};
 use crate::errors::{AppError, AppResult};
 use crate::repository::PatientRepository;
 
@@ -23,17 +27,28 @@ impl<'a> PatientService<'a> {
     pub async fn create(&self, req: CreatePatientRequest) -> AppResult<PatientResponse> {
         // 检查外部 ID 是否已存在
         if let Some(ref external_id) = req.external_id {
-            if self.patient_repo.find_by_external_id(external_id).await?.is_some() {
+            if self
+                .patient_repo
+                .find_by_external_id(external_id)
+                .await?
+                .is_some()
+            {
                 return Err(AppError::ValidationError("外部 ID 已存在".into()));
             }
         }
 
-        let patient = self.patient_repo.insert(&NewPatient {
-            name: req.name,
-            external_id: req.external_id,
-        }).await?;
+        let patient = self
+            .patient_repo
+            .insert(&NewPatient {
+                name: req.name,
+                external_id: req.external_id,
+            })
+            .await?;
 
-        info!("患者创建成功: patient_id={}, name={}", patient.id, patient.name);
+        info!(
+            "患者创建成功: patient_id={}, name={}",
+            patient.id, patient.name
+        );
 
         Ok(patient.into())
     }
@@ -60,11 +75,10 @@ impl<'a> PatientService<'a> {
 
     /// 更新患者
     pub async fn update(&self, id: &Uuid, req: UpdatePatientRequest) -> AppResult<PatientResponse> {
-        let patient = self.patient_repo.update(
-            id,
-            req.name.as_deref(),
-            req.external_id.as_deref(),
-        ).await?;
+        let patient = self
+            .patient_repo
+            .update(id, req.name.as_deref(), req.external_id.as_deref())
+            .await?;
 
         info!("患者更新成功: patient_id={}", id);
 
@@ -78,17 +92,20 @@ impl<'a> PatientService<'a> {
         let limit = page_size as i64;
         let offset = ((page - 1) * page_size) as i64;
 
-        let patients = self.patient_repo.find_all(
-            query.name.as_deref(),
-            query.external_id.as_deref(),
-            limit,
-            offset,
-        ).await?;
+        let patients = self
+            .patient_repo
+            .find_all(
+                query.name.as_deref(),
+                query.external_id.as_deref(),
+                limit,
+                offset,
+            )
+            .await?;
 
-        let total = self.patient_repo.count(
-            query.name.as_deref(),
-            query.external_id.as_deref(),
-        ).await?;
+        let total = self
+            .patient_repo
+            .count(query.name.as_deref(), query.external_id.as_deref())
+            .await?;
 
         let data: Vec<PatientResponse> = patients.into_iter().map(|p| p.into()).collect();
 
@@ -113,7 +130,11 @@ impl<'a> PatientService<'a> {
     // ========== 患者档案 ==========
 
     /// 创建或更新患者档案
-    pub async fn upsert_profile(&self, patient_id: &Uuid, req: CreatePatientProfileRequest) -> AppResult<PatientProfileResponse> {
+    pub async fn upsert_profile(
+        &self,
+        patient_id: &Uuid,
+        req: CreatePatientProfileRequest,
+    ) -> AppResult<PatientProfileResponse> {
         // 确保患者存在
         self.patient_repo.find_by_id(patient_id).await?;
 
@@ -121,22 +142,25 @@ impl<'a> PatientService<'a> {
         let _ = self.patient_repo.delete_profile(patient_id).await;
 
         // 创建新档案
-        let profile = self.patient_repo.insert_profile(&NewPatientProfile {
-            patient_id: *patient_id,
-            date_of_birth: req.date_of_birth,
-            gender: req.gender,
-            blood_type: req.blood_type,
-            contact_phone: req.contact_phone,
-            address: req.address,
-            emergency_contact: req.emergency_contact,
-            emergency_phone: req.emergency_phone,
-            medical_id: req.medical_id,
-            allergies: req.allergies,
-            medical_history: req.medical_history,
-            notes: req.notes,
-            tags: req.tags,
-            metadata: req.metadata,
-        }).await?;
+        let profile = self
+            .patient_repo
+            .insert_profile(&NewPatientProfile {
+                patient_id: *patient_id,
+                date_of_birth: req.date_of_birth,
+                gender: req.gender,
+                blood_type: req.blood_type,
+                contact_phone: req.contact_phone,
+                address: req.address,
+                emergency_contact: req.emergency_contact,
+                emergency_phone: req.emergency_phone,
+                medical_id: req.medical_id,
+                allergies: req.allergies,
+                medical_history: req.medical_history,
+                notes: req.notes,
+                tags: req.tags,
+                metadata: req.metadata,
+            })
+            .await?;
 
         info!("患者档案创建成功: patient_id={}", patient_id);
 
@@ -144,7 +168,10 @@ impl<'a> PatientService<'a> {
     }
 
     /// 获取患者档案
-    pub async fn get_profile(&self, patient_id: &Uuid) -> AppResult<Option<PatientProfileResponse>> {
+    pub async fn get_profile(
+        &self,
+        patient_id: &Uuid,
+    ) -> AppResult<Option<PatientProfileResponse>> {
         let profile = self.patient_repo.find_profile(patient_id).await?;
         Ok(profile.map(|p| p.into()))
     }

@@ -1,10 +1,10 @@
 pub mod auth;
-pub mod user;
-pub mod patient;
-pub mod device;
 pub mod binding;
 pub mod data;
+pub mod device;
 pub mod health;
+pub mod patient;
+pub mod user;
 
 use rocket::Route;
 

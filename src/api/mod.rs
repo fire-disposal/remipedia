@@ -1,7 +1,7 @@
+pub mod guards;
 pub mod openapi;
 pub mod routes;
-pub mod guards;
 
+pub use guards::*;
 pub use openapi::*;
 pub use routes::*;
-pub use guards::*;

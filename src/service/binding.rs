@@ -33,15 +33,23 @@ impl<'a> BindingService<'a> {
         self.patient_repo.find_by_id(&req.patient_id).await?;
 
         // 检查设备是否已有有效绑定
-        if self.binding_repo.find_active_by_device(&req.device_id).await?.is_some() {
+        if self
+            .binding_repo
+            .find_active_by_device(&req.device_id)
+            .await?
+            .is_some()
+        {
             return Err(AppError::BindingAlreadyExists);
         }
 
-        let binding = self.binding_repo.create(&NewBinding {
-            device_id: req.device_id,
-            patient_id: req.patient_id,
-            notes: req.notes,
-        }).await?;
+        let binding = self
+            .binding_repo
+            .create(&NewBinding {
+                device_id: req.device_id,
+                patient_id: req.patient_id,
+                notes: req.notes,
+            })
+            .await?;
 
         info!(
             "绑定创建成功: binding_id={}, device_id={}, patient_id={}",
@@ -53,7 +61,9 @@ impl<'a> BindingService<'a> {
 
     /// 解除绑定
     pub async fn unbind(&self, binding_id: &Uuid) -> AppResult<()> {
-        self.binding_repo.end_binding(binding_id, Utc::now()).await?;
+        self.binding_repo
+            .end_binding(binding_id, Utc::now())
+            .await?;
         info!("绑定解除成功: binding_id={}", binding_id);
         Ok(())
     }
@@ -65,11 +75,19 @@ impl<'a> BindingService<'a> {
     }
 
     /// 获取设备的绑定历史
-    pub async fn get_device_binding_history(&self, device_id: &Uuid, page: u32, page_size: u32) -> AppResult<BindingListResponse> {
+    pub async fn get_device_binding_history(
+        &self,
+        device_id: &Uuid,
+        page: u32,
+        page_size: u32,
+    ) -> AppResult<BindingListResponse> {
         let limit = page_size as i64;
         let offset = ((page - 1) * page_size) as i64;
 
-        let bindings = self.binding_repo.find_all_by_device(device_id, limit, offset).await?;
+        let bindings = self
+            .binding_repo
+            .find_all_by_device(device_id, limit, offset)
+            .await?;
         let total = self.binding_repo.count_by_device(device_id).await?;
 
         let data: Vec<BindingResponse> = bindings.into_iter().map(|b| b.into()).collect();
@@ -86,11 +104,19 @@ impl<'a> BindingService<'a> {
     }
 
     /// 获取患者的绑定历史
-    pub async fn get_patient_binding_history(&self, patient_id: &Uuid, page: u32, page_size: u32) -> AppResult<BindingListResponse> {
+    pub async fn get_patient_binding_history(
+        &self,
+        patient_id: &Uuid,
+        page: u32,
+        page_size: u32,
+    ) -> AppResult<BindingListResponse> {
         let limit = page_size as i64;
         let offset = ((page - 1) * page_size) as i64;
 
-        let bindings = self.binding_repo.find_all_by_patient(patient_id, limit, offset).await?;
+        let bindings = self
+            .binding_repo
+            .find_all_by_patient(patient_id, limit, offset)
+            .await?;
         let total = self.binding_repo.count_by_patient(patient_id).await?;
 
         let data: Vec<BindingResponse> = bindings.into_iter().map(|b| b.into()).collect();
@@ -107,7 +133,10 @@ impl<'a> BindingService<'a> {
     }
 
     /// 获取设备的当前绑定
-    pub async fn get_current_binding(&self, device_id: &Uuid) -> AppResult<Option<BindingResponse>> {
+    pub async fn get_current_binding(
+        &self,
+        device_id: &Uuid,
+    ) -> AppResult<Option<BindingResponse>> {
         let binding = self.binding_repo.find_active_by_device(device_id).await?;
         Ok(binding.map(|b| b.into()))
     }
@@ -124,8 +153,14 @@ impl<'a> BindingService<'a> {
         let limit = page_size as i64;
         let offset = ((page - 1) * page_size) as i64;
 
-        let bindings = self.binding_repo.query(device_id, patient_id, active_only, limit, offset).await?;
-        let total = self.binding_repo.count_query(device_id, patient_id, active_only).await?;
+        let bindings = self
+            .binding_repo
+            .query(device_id, patient_id, active_only, limit, offset)
+            .await?;
+        let total = self
+            .binding_repo
+            .count_query(device_id, patient_id, active_only)
+            .await?;
 
         let data: Vec<BindingResponse> = bindings.into_iter().map(|b| b.into()).collect();
 

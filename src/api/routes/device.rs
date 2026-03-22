@@ -165,9 +165,21 @@ pub async fn list_devices(
 }
 
 pub fn routes() -> Vec<rocket::Route> {
-    rocket::routes![register_device, get_device, update_device, delete_device, list_devices]
+    rocket::routes![
+        register_device,
+        get_device,
+        update_device,
+        delete_device,
+        list_devices
+    ]
 }
 
 #[derive(OpenApi)]
-#[openapi(paths(register_device, get_device, update_device, delete_device, list_devices))]
+#[openapi(paths(
+    register_device,
+    get_device,
+    update_device,
+    delete_device,
+    list_devices
+))]
 pub struct DeviceApiDoc;

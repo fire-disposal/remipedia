@@ -45,13 +45,15 @@ pub async fn list_bindings(
     let patient_id = patient_id.as_ref().and_then(|s| Uuid::parse_str(s).ok());
 
     let service = BindingService::new(pool);
-    let response = service.query(
-        device_id,
-        patient_id,
-        active_only.unwrap_or(false),
-        page.unwrap_or(1),
-        page_size.unwrap_or(20),
-    ).await?;
+    let response = service
+        .query(
+            device_id,
+            patient_id,
+            active_only.unwrap_or(false),
+            page.unwrap_or(1),
+            page_size.unwrap_or(20),
+        )
+        .await?;
     Ok(Json(response))
 }
 

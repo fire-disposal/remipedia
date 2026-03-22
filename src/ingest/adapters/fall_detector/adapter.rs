@@ -28,7 +28,11 @@ impl FallDetectorAdapter {
             _ => FallEventType::Unknown,
         };
 
-        let confidence = if raw.len() > 1 { raw[1] as f32 / 100.0 } else { 0.0 };
+        let confidence = if raw.len() > 1 {
+            raw[1] as f32 / 100.0
+        } else {
+            0.0
+        };
 
         Ok(FallDetectorData {
             event_type,

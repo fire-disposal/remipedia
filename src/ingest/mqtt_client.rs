@@ -27,10 +27,10 @@ impl MqttIngest {
         // 启动事件循环
         let pool_clone = pool.clone();
         let topic_prefix_clone = topic_prefix.clone();
-        
+
         tokio::spawn(async move {
             info!("MQTT 事件循环启动");
-            
+
             while let Ok(notification) = eventloop.poll().await {
                 if let Event::Incoming(Incoming::Publish(publish)) = notification {
                     Self::handle_message(
@@ -38,30 +38,32 @@ impl MqttIngest {
                         &topic_prefix_clone,
                         &publish.topic,
                         &publish.payload,
-                    ).await;
+                    )
+                    .await;
                 }
             }
-            
+
             warn!("MQTT 事件循环结束");
         });
 
-        Self { client, topic_prefix }
+        Self {
+            client,
+            topic_prefix,
+        }
     }
 
     /// 订阅主题
     pub async fn subscribe(&self) {
         let topic = format!("{}/+/data", self.topic_prefix);
-        self.client.subscribe(&topic, QoS::AtLeastOnce).await.unwrap();
+        self.client
+            .subscribe(&topic, QoS::AtLeastOnce)
+            .await
+            .unwrap();
         info!("已订阅 MQTT 主题: {}", topic);
     }
 
     /// 处理消息
-    async fn handle_message(
-        pool: &PgPool,
-        topic_prefix: &str,
-        topic: &str,
-        payload: &[u8],
-    ) {
+    async fn handle_message(pool: &PgPool, topic_prefix: &str, topic: &str, payload: &[u8]) {
         if let Err(e) = Self::process_message(pool, topic_prefix, topic, payload).await {
             error!("处理 MQTT 消息失败: {}, topic: {}", e, topic);
         }
@@ -91,28 +93,38 @@ impl MqttIngest {
         let msg: serde_json::Value = serde_json::from_slice(payload)
             .map_err(|e| AppError::ValidationError(format!("消息解析失败: {}", e)))?;
 
-        let device_type = msg["device_type"].as_str()
+        let device_type = msg["device_type"]
+            .as_str()
             .ok_or_else(|| AppError::ValidationError("缺少 device_type".into()))?;
-        
-        let timestamp = msg["timestamp"].as_str()
+
+        let timestamp = msg["timestamp"]
+            .as_str()
             .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
             .map(|dt| dt.with_timezone(&chrono::Utc))
             .unwrap_or_else(chrono::Utc::now);
-        
-        let raw_data: Vec<u8> = msg["data"].as_array()
-            .map(|arr| arr.iter().filter_map(|v| v.as_u64().map(|n| n as u8)).collect())
+
+        let raw_data: Vec<u8> = msg["data"]
+            .as_array()
+            .map(|arr| {
+                arr.iter()
+                    .filter_map(|v| v.as_u64().map(|n| n as u8))
+                    .collect()
+            })
             .unwrap_or_default();
 
         // 自动注册或获取设备
         let device_service = DeviceService::new(pool);
-        let device = device_service.auto_register_or_get(serial_number, device_type).await?;
+        let device = device_service
+            .auto_register_or_get(serial_number, device_type)
+            .await?;
 
         // 获取适配器
         let dev_type = DeviceType::from_str(&device.device_type)
             .ok_or_else(|| AppError::ValidationError("无效设备类型".into()))?;
-        
+
         let registry = AdapterRegistry::new();
-        let adapter = registry.get(&dev_type)
+        let adapter = registry
+            .get(&dev_type)
             .ok_or_else(|| AppError::ValidationError("无对应适配器".into()))?;
 
         // 解析并验证数据
@@ -121,22 +133,28 @@ impl MqttIngest {
 
         // 获取当前绑定的患者
         let binding_service = BindingService::new(pool);
-        let subject_id = binding_service.get_current_binding_subject(&device.id).await?;
+        let subject_id = binding_service
+            .get_current_binding_subject(&device.id)
+            .await?;
 
         // 存储数据
         let data_service = DataService::new(pool);
-        data_service.ingest(crate::core::entity::IngestData {
-            time: timestamp,
-            device_id: device.id,
-            subject_id,
-            data_type: adapter.data_type().to_string(),
-            payload: data_payload,
-            source: "mqtt".to_string(),
-        }).await?;
+        data_service
+            .ingest(crate::core::entity::IngestData {
+                time: timestamp,
+                device_id: device.id,
+                subject_id,
+                data_type: adapter.data_type().to_string(),
+                payload: data_payload,
+                source: "mqtt".to_string(),
+            })
+            .await?;
 
         info!(
             "数据入库成功: device_id={}, subject_id={:?}, data_type={}",
-            device.id, subject_id, adapter.data_type()
+            device.id,
+            subject_id,
+            adapter.data_type()
         );
 
         Ok(())

@@ -39,13 +39,12 @@ impl<'a> DeviceRepository<'a> {
     }
 
     pub async fn exists_by_serial(&self, serial_number: &str) -> AppResult<bool> {
-        let result: Option<(i64,)> = sqlx::query_as(
-            "SELECT 1 FROM device WHERE serial_number = $1 LIMIT 1"
-        )
-        .bind(serial_number)
-        .fetch_optional(self.pool)
-        .await
-        .map_err(AppError::DatabaseError)?;
+        let result: Option<(i64,)> =
+            sqlx::query_as("SELECT 1 FROM device WHERE serial_number = $1 LIMIT 1")
+                .bind(serial_number)
+                .fetch_optional(self.pool)
+                .await
+                .map_err(AppError::DatabaseError)?;
 
         Ok(result.is_some())
     }
@@ -81,7 +80,13 @@ impl<'a> DeviceRepository<'a> {
         })
     }
 
-    pub async fn update(&self, id: &Uuid, firmware_version: Option<&str>, status: Option<&str>, metadata: Option<&serde_json::Value>) -> AppResult<Device> {
+    pub async fn update(
+        &self,
+        id: &Uuid,
+        firmware_version: Option<&str>,
+        status: Option<&str>,
+        metadata: Option<&serde_json::Value>,
+    ) -> AppResult<Device> {
         sqlx::query_as::<_, Device>(
             r#"UPDATE device SET
                firmware_version = COALESCE($2, firmware_version),
@@ -102,7 +107,14 @@ impl<'a> DeviceRepository<'a> {
         })
     }
 
-    pub async fn find_all(&self, device_type: Option<&str>, status: Option<&str>, serial_number: Option<&str>, limit: i64, offset: i64) -> AppResult<Vec<Device>> {
+    pub async fn find_all(
+        &self,
+        device_type: Option<&str>,
+        status: Option<&str>,
+        serial_number: Option<&str>,
+        limit: i64,
+        offset: i64,
+    ) -> AppResult<Vec<Device>> {
         let devices = sqlx::query_as::<_, Device>(
             r#"SELECT id, serial_number, device_type, firmware_version, status, metadata, created_at, updated_at
                FROM device
@@ -124,7 +136,12 @@ impl<'a> DeviceRepository<'a> {
         Ok(devices)
     }
 
-    pub async fn count(&self, device_type: Option<&str>, status: Option<&str>, serial_number: Option<&str>) -> AppResult<i64> {
+    pub async fn count(
+        &self,
+        device_type: Option<&str>,
+        status: Option<&str>,
+        serial_number: Option<&str>,
+    ) -> AppResult<i64> {
         let result: (i64,) = sqlx::query_as(
             r#"SELECT COUNT(*) FROM device
                WHERE ($1::text IS NULL OR device_type = $1)

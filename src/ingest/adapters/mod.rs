@@ -1,8 +1,8 @@
 mod adapter_trait;
-pub mod heart_rate;      // 心率监测器模块
-pub mod fall_detector;   // 跌倒检测器模块
-pub mod spo2;            // 血氧传感器模块
-pub mod mattress;        // 床垫适配器模块
+pub mod fall_detector; // 跌倒检测器模块
+pub mod heart_rate; // 心率监测器模块
+pub mod mattress;
+pub mod spo2; // 血氧传感器模块 // 床垫适配器模块
 
 pub use adapter_trait::DeviceAdapter;
 use std::collections::HashMap;
@@ -21,10 +21,19 @@ impl AdapterRegistry {
         let mut adapters: HashMap<DeviceType, Arc<dyn DeviceAdapter>> = HashMap::new();
 
         // 注册所有适配器 - 使用新的模块化架构
-        adapters.insert(DeviceType::HeartRateMonitor, Arc::new(heart_rate::HeartRateAdapter::new()));
-        adapters.insert(DeviceType::FallDetector, Arc::new(fall_detector::FallDetectorAdapter::new()));
+        adapters.insert(
+            DeviceType::HeartRateMonitor,
+            Arc::new(heart_rate::HeartRateAdapter::new()),
+        );
+        adapters.insert(
+            DeviceType::FallDetector,
+            Arc::new(fall_detector::FallDetectorAdapter::new()),
+        );
         adapters.insert(DeviceType::SpO2Sensor, Arc::new(spo2::SpO2Adapter::new()));
-        adapters.insert(DeviceType::SmartMattress, Arc::new(mattress::MattressAdapter::new()));
+        adapters.insert(
+            DeviceType::SmartMattress,
+            Arc::new(mattress::MattressAdapter::new()),
+        );
 
         Self { adapters }
     }

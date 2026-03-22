@@ -7,8 +7,8 @@ use rocket::{Build, Rocket};
 use sqlx::postgres::PgPoolOptions;
 use sqlx::PgPool;
 
-use remipedia::api::swagger_ui;
 use remipedia::api::routes;
+use remipedia::api::swagger_ui;
 use remipedia::config::Settings;
 use remipedia::ingest::{MqttIngest, TcpServer};
 
@@ -24,10 +24,20 @@ impl Fairing for Cors {
         }
     }
 
-    async fn on_response<'r>(&self, _request: &'r rocket::Request<'_>, response: &mut rocket::Response<'r>) {
+    async fn on_response<'r>(
+        &self,
+        _request: &'r rocket::Request<'_>,
+        response: &mut rocket::Response<'r>,
+    ) {
         response.set_header(Header::new("Access-Control-Allow-Origin", "*"));
-        response.set_header(Header::new("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS"));
-        response.set_header(Header::new("Access-Control-Allow-Headers", "Authorization, Content-Type"));
+        response.set_header(Header::new(
+            "Access-Control-Allow-Methods",
+            "GET, POST, PUT, DELETE, OPTIONS",
+        ));
+        response.set_header(Header::new(
+            "Access-Control-Allow-Headers",
+            "Authorization, Content-Type",
+        ));
         response.set_header(Header::new("Access-Control-Max-Age", "86400"));
     }
 }
@@ -61,8 +71,7 @@ async fn main() -> anyhow::Result<()> {
     info!("🚀 Remipedia IoT Health Platform 启动中...");
 
     // 加载配置
-    let settings = Settings::new()
-        .map_err(|e| anyhow::anyhow!("配置加载失败: {}", e))?;
+    let settings = Settings::new().map_err(|e| anyhow::anyhow!("配置加载失败: {}", e))?;
 
     info!("📋 配置加载成功");
 
@@ -105,7 +114,10 @@ async fn main() -> anyhow::Result<()> {
     // 启动 HTTP 服务器
     let rocket = build_rocket(&settings, pool).await;
 
-    info!("🌐 HTTP 服务器启动于 {}:{}", settings.server.host, settings.server.port);
+    info!(
+        "🌐 HTTP 服务器启动于 {}:{}",
+        settings.server.host, settings.server.port
+    );
 
     rocket
         .launch()

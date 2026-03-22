@@ -70,7 +70,7 @@ impl<'a> DataRepository<'a> {
                  AND ($2::uuid IS NULL OR subject_id = $2)
                  AND ($3::text IS NULL OR data_type = $3)
                  AND ($4::timestamptz IS NULL OR time >= $4)
-                 AND ($5::timestamptz IS NULL OR time <= $5)"#
+                 AND ($5::timestamptz IS NULL OR time <= $5)"#,
         )
         .bind(query.device_id)
         .bind(query.subject_id)
@@ -85,7 +85,11 @@ impl<'a> DataRepository<'a> {
     }
 
     /// 获取设备最新数据
-    pub async fn find_latest(&self, device_id: &Uuid, data_type: Option<&str>) -> AppResult<Option<Datasheet>> {
+    pub async fn find_latest(
+        &self,
+        device_id: &Uuid,
+        data_type: Option<&str>,
+    ) -> AppResult<Option<Datasheet>> {
         let data = sqlx::query_as::<_, Datasheet>(
             r#"SELECT time, device_id, subject_id, data_type, payload, source, ingested_at
                FROM datasheet
@@ -103,7 +107,12 @@ impl<'a> DataRepository<'a> {
     }
 
     /// 获取患者的最新数据
-    pub async fn find_latest_by_subject(&self, subject_id: &Uuid, data_type: Option<&str>, limit: i64) -> AppResult<Vec<Datasheet>> {
+    pub async fn find_latest_by_subject(
+        &self,
+        subject_id: &Uuid,
+        data_type: Option<&str>,
+        limit: i64,
+    ) -> AppResult<Vec<Datasheet>> {
         let data = sqlx::query_as::<_, Datasheet>(
             r#"SELECT time, device_id, subject_id, data_type, payload, source, ingested_at
                FROM datasheet

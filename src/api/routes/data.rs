@@ -75,8 +75,16 @@ pub async fn query_data(
         device_id: device_id.as_ref().and_then(|s| Uuid::parse_str(s).ok()),
         subject_id: subject_id.as_ref().and_then(|s| Uuid::parse_str(s).ok()),
         data_type,
-        start_time: start_time.as_ref().and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok().map(|dt| dt.with_timezone(&chrono::Utc))),
-        end_time: end_time.as_ref().and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok().map(|dt| dt.with_timezone(&chrono::Utc))),
+        start_time: start_time.as_ref().and_then(|s| {
+            chrono::DateTime::parse_from_rfc3339(s)
+                .ok()
+                .map(|dt| dt.with_timezone(&chrono::Utc))
+        }),
+        end_time: end_time.as_ref().and_then(|s| {
+            chrono::DateTime::parse_from_rfc3339(s)
+                .ok()
+                .map(|dt| dt.with_timezone(&chrono::Utc))
+        }),
         page: page.unwrap_or(1),
         page_size: page_size.unwrap_or(20),
     };

@@ -190,10 +190,22 @@ pub async fn list_patients(
 
 pub fn routes() -> Vec<rocket::Route> {
     rocket::routes![
-        create_patient, get_patient, get_patient_detail, update_patient, delete_patient, list_patients
+        create_patient,
+        get_patient,
+        get_patient_detail,
+        update_patient,
+        delete_patient,
+        list_patients
     ]
 }
 
 #[derive(OpenApi)]
-#[openapi(paths(create_patient, get_patient, get_patient_detail, update_patient, delete_patient, list_patients))]
+#[openapi(paths(
+    create_patient,
+    get_patient,
+    get_patient_detail,
+    update_patient,
+    delete_patient,
+    list_patients
+))]
 pub struct PatientApiDoc;

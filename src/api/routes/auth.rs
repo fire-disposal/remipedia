@@ -1,12 +1,14 @@
+use rocket::post;
 use rocket::serde::json::Json;
 use rocket::State;
-use rocket::post;
 use sqlx::PgPool;
 use utoipa::OpenApi;
 
 use crate::api::guards::AuthenticatedUser;
 use crate::config::JwtConfig;
-use crate::dto::request::{ChangePasswordRequest, LoginRequest, LogoutRequest, RefreshTokenRequest};
+use crate::dto::request::{
+    ChangePasswordRequest, LoginRequest, LogoutRequest, RefreshTokenRequest,
+};
 use crate::dto::response::{LoginResponse, RefreshTokenResponse};
 use crate::errors::AppResult;
 use crate::service::AuthService;
@@ -78,7 +80,9 @@ pub async fn change_password(
 ) -> AppResult<Json<serde_json::Value>> {
     let service = AuthService::new(pool, jwt_config);
     service.change_password(&user.id, req.into_inner()).await?;
-    Ok(Json(serde_json::json!({ "success": true, "message": "密码修改成功" })))
+    Ok(Json(
+        serde_json::json!({ "success": true, "message": "密码修改成功" }),
+    ))
 }
 
 /// 登出
@@ -104,7 +108,9 @@ pub async fn logout(
 ) -> AppResult<Json<serde_json::Value>> {
     let service = AuthService::new(pool, jwt_config);
     service.logout(&req.refresh_token).await?;
-    Ok(Json(serde_json::json!({ "success": true, "message": "登出成功" })))
+    Ok(Json(
+        serde_json::json!({ "success": true, "message": "登出成功" }),
+    ))
 }
 
 pub fn routes() -> Vec<rocket::Route> {

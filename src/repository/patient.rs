@@ -51,7 +51,12 @@ impl<'a> PatientRepository<'a> {
         .map_err(AppError::DatabaseError)
     }
 
-    pub async fn update(&self, id: &Uuid, name: Option<&str>, external_id: Option<&str>) -> AppResult<Patient> {
+    pub async fn update(
+        &self,
+        id: &Uuid,
+        name: Option<&str>,
+        external_id: Option<&str>,
+    ) -> AppResult<Patient> {
         sqlx::query_as::<_, Patient>(
             r#"UPDATE patient SET name = COALESCE($2, name), external_id = COALESCE($3, external_id)
                WHERE id = $1
@@ -68,7 +73,13 @@ impl<'a> PatientRepository<'a> {
         })
     }
 
-    pub async fn find_all(&self, name: Option<&str>, external_id: Option<&str>, limit: i64, offset: i64) -> AppResult<Vec<Patient>> {
+    pub async fn find_all(
+        &self,
+        name: Option<&str>,
+        external_id: Option<&str>,
+        limit: i64,
+        offset: i64,
+    ) -> AppResult<Vec<Patient>> {
         let patients = sqlx::query_as::<_, Patient>(
             r#"SELECT id, name, external_id, created_at, updated_at
                FROM patient

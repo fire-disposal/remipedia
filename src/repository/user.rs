@@ -39,13 +39,12 @@ impl<'a> UserRepository<'a> {
     }
 
     pub async fn exists_by_username(&self, username: &str) -> AppResult<bool> {
-        let result: Option<(i64,)> = sqlx::query_as(
-            r#"SELECT 1 FROM "user" WHERE username = $1 LIMIT 1"#,
-        )
-        .bind(username)
-        .fetch_optional(self.pool)
-        .await
-        .map_err(AppError::DatabaseError)?;
+        let result: Option<(i64,)> =
+            sqlx::query_as(r#"SELECT 1 FROM "user" WHERE username = $1 LIMIT 1"#)
+                .bind(username)
+                .fetch_optional(self.pool)
+                .await
+                .map_err(AppError::DatabaseError)?;
 
         Ok(result.is_some())
     }
@@ -67,29 +66,31 @@ impl<'a> UserRepository<'a> {
     }
 
     pub async fn update_last_login(&self, id: &Uuid) -> AppResult<()> {
-        sqlx::query(
-            r#"UPDATE "user" SET last_login_at = NOW() WHERE id = $1"#,
-        )
-        .bind(id)
-        .execute(self.pool)
-        .await
-        .map_err(AppError::DatabaseError)?;
+        sqlx::query(r#"UPDATE "user" SET last_login_at = NOW() WHERE id = $1"#)
+            .bind(id)
+            .execute(self.pool)
+            .await
+            .map_err(AppError::DatabaseError)?;
         Ok(())
     }
 
     pub async fn update_password(&self, id: &Uuid, password_hash: &str) -> AppResult<()> {
-        sqlx::query(
-            r#"UPDATE "user" SET password_hash = $2 WHERE id = $1"#,
-        )
-        .bind(id)
-        .bind(password_hash)
-        .execute(self.pool)
-        .await
-        .map_err(AppError::DatabaseError)?;
+        sqlx::query(r#"UPDATE "user" SET password_hash = $2 WHERE id = $1"#)
+            .bind(id)
+            .bind(password_hash)
+            .execute(self.pool)
+            .await
+            .map_err(AppError::DatabaseError)?;
         Ok(())
     }
 
-    pub async fn find_all(&self, role: Option<&str>, status: Option<&str>, limit: i64, offset: i64) -> AppResult<Vec<User>> {
+    pub async fn find_all(
+        &self,
+        role: Option<&str>,
+        status: Option<&str>,
+        limit: i64,
+        offset: i64,
+    ) -> AppResult<Vec<User>> {
         let users = sqlx::query_as::<_, User>(
             r#"SELECT id, username, password_hash, role, phone, email, avatar_url, status, last_login_at, created_at, updated_at
                FROM "user"

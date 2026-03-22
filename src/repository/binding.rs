@@ -69,14 +69,13 @@ impl<'a> BindingRepository<'a> {
 
     /// 结束绑定
     pub async fn end_binding(&self, binding_id: &Uuid, ended_at: DateTime<Utc>) -> AppResult<()> {
-        let result = sqlx::query(
-            r#"UPDATE binding SET ended_at = $2 WHERE id = $1 AND ended_at IS NULL"#,
-        )
-        .bind(binding_id)
-        .bind(ended_at)
-        .execute(self.pool)
-        .await
-        .map_err(AppError::DatabaseError)?;
+        let result =
+            sqlx::query(r#"UPDATE binding SET ended_at = $2 WHERE id = $1 AND ended_at IS NULL"#)
+                .bind(binding_id)
+                .bind(ended_at)
+                .execute(self.pool)
+                .await
+                .map_err(AppError::DatabaseError)?;
 
         if result.rows_affected() == 0 {
             return Err(AppError::NotFound(format!("有效绑定: {}", binding_id)));
@@ -86,7 +85,12 @@ impl<'a> BindingRepository<'a> {
     }
 
     /// 获取设备的所有绑定历史
-    pub async fn find_all_by_device(&self, device_id: &Uuid, limit: i64, offset: i64) -> AppResult<Vec<Binding>> {
+    pub async fn find_all_by_device(
+        &self,
+        device_id: &Uuid,
+        limit: i64,
+        offset: i64,
+    ) -> AppResult<Vec<Binding>> {
         let bindings = sqlx::query_as::<_, Binding>(
             r#"SELECT id, device_id, patient_id, started_at, ended_at, notes, created_at
                FROM binding WHERE device_id = $1
@@ -104,7 +108,12 @@ impl<'a> BindingRepository<'a> {
     }
 
     /// 获取患者的所有绑定历史
-    pub async fn find_all_by_patient(&self, patient_id: &Uuid, limit: i64, offset: i64) -> AppResult<Vec<Binding>> {
+    pub async fn find_all_by_patient(
+        &self,
+        patient_id: &Uuid,
+        limit: i64,
+        offset: i64,
+    ) -> AppResult<Vec<Binding>> {
         let bindings = sqlx::query_as::<_, Binding>(
             r#"SELECT id, device_id, patient_id, started_at, ended_at, notes, created_at
                FROM binding WHERE patient_id = $1
@@ -123,26 +132,22 @@ impl<'a> BindingRepository<'a> {
 
     /// 统计设备的绑定数量
     pub async fn count_by_device(&self, device_id: &Uuid) -> AppResult<i64> {
-        let result: (i64,) = sqlx::query_as(
-            "SELECT COUNT(*) FROM binding WHERE device_id = $1"
-        )
-        .bind(device_id)
-        .fetch_one(self.pool)
-        .await
-        .map_err(AppError::DatabaseError)?;
+        let result: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM binding WHERE device_id = $1")
+            .bind(device_id)
+            .fetch_one(self.pool)
+            .await
+            .map_err(AppError::DatabaseError)?;
 
         Ok(result.0)
     }
 
     /// 统计患者的绑定数量
     pub async fn count_by_patient(&self, patient_id: &Uuid) -> AppResult<i64> {
-        let result: (i64,) = sqlx::query_as(
-            "SELECT COUNT(*) FROM binding WHERE patient_id = $1"
-        )
-        .bind(patient_id)
-        .fetch_one(self.pool)
-        .await
-        .map_err(AppError::DatabaseError)?;
+        let result: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM binding WHERE patient_id = $1")
+            .bind(patient_id)
+            .fetch_one(self.pool)
+            .await
+            .map_err(AppError::DatabaseError)?;
 
         Ok(result.0)
     }

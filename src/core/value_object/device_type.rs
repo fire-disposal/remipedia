@@ -1,5 +1,5 @@
-use std::fmt;
 use serde::{Deserialize, Serialize};
+use std::fmt;
 
 /// 设备类型枚举
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -35,7 +35,12 @@ impl DeviceType {
 
     /// 获取所有设备类型
     pub fn all() -> &'static [Self] {
-        &[Self::HeartRateMonitor, Self::FallDetector, Self::SpO2Sensor, Self::SmartMattress]
+        &[
+            Self::HeartRateMonitor,
+            Self::FallDetector,
+            Self::SpO2Sensor,
+            Self::SmartMattress,
+        ]
     }
 }
 

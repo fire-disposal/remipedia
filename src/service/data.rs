@@ -27,7 +27,7 @@ impl<'a> DataService<'a> {
     /// 数据入库
     pub async fn ingest(&self, data: IngestData) -> AppResult<DataReportResponse> {
         let result = self.data_repo.insert(&data).await?;
-        
+
         info!(
             "数据入库成功: device_id={}, subject_id={:?}, data_type={}",
             result.device_id, result.subject_id, result.data_type
@@ -48,7 +48,11 @@ impl<'a> DataService<'a> {
         // 获取当前绑定的患者
         let subject_id = match req.subject_id {
             Some(id) => Some(id),
-            None => self.binding_repo.find_active_by_device(&req.device_id).await?.map(|b| b.patient_id),
+            None => self
+                .binding_repo
+                .find_active_by_device(&req.device_id)
+                .await?
+                .map(|b| b.patient_id),
         };
 
         let data = IngestData {
@@ -82,14 +86,26 @@ impl<'a> DataService<'a> {
     }
 
     /// 按设备查询最新数据
-    pub async fn get_latest(&self, device_id: &Uuid, data_type: Option<&str>) -> AppResult<Option<DataRecordResponse>> {
+    pub async fn get_latest(
+        &self,
+        device_id: &Uuid,
+        data_type: Option<&str>,
+    ) -> AppResult<Option<DataRecordResponse>> {
         let data = self.data_repo.find_latest(device_id, data_type).await?;
         Ok(data.map(|d| d.into()))
     }
 
     /// 按患者查询最新数据
-    pub async fn get_latest_by_subject(&self, subject_id: &Uuid, data_type: Option<&str>, limit: i64) -> AppResult<Vec<DataRecordResponse>> {
-        let data = self.data_repo.find_latest_by_subject(subject_id, data_type, limit).await?;
+    pub async fn get_latest_by_subject(
+        &self,
+        subject_id: &Uuid,
+        data_type: Option<&str>,
+        limit: i64,
+    ) -> AppResult<Vec<DataRecordResponse>> {
+        let data = self
+            .data_repo
+            .find_latest_by_subject(subject_id, data_type, limit)
+            .await?;
         Ok(data.into_iter().map(|d| d.into()).collect())
     }
 }

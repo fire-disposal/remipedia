@@ -4,7 +4,9 @@ use std::collections::VecDeque;
 
 use crate::errors::AppResult;
 
-use super::types::{AlertLevel, MattressEvent, MattressState, MattressData, SmartSamplingConfig, VitalSignsConfig};
+use super::types::{
+    AlertLevel, MattressData, MattressEvent, MattressState, SmartSamplingConfig, VitalSignsConfig,
+};
 
 /// 床垫事件引擎 - 事件驱动原生架构的核心
 pub struct MattressEventEngine {
@@ -12,14 +14,14 @@ pub struct MattressEventEngine {
     state: MattressState,
     state_history: VecDeque<(MattressState, DateTime<Utc>)>,
     last_position: Option<[i32; 2]>,
-    
+
     // 配置参数
     bed_entry_threshold: i32,
     bed_exit_threshold: i32,
     movement_score_threshold: f32,
     sampling_config: SmartSamplingConfig,
     vital_signs_config: VitalSignsConfig,
-    
+
     // 事件驱动状态
     last_vital_signs_event: Option<DateTime<Utc>>,
     last_apnea_event: Option<DateTime<Utc>>,
@@ -36,14 +38,14 @@ impl MattressEventEngine {
             state: MattressState::OffBed,
             state_history: VecDeque::with_capacity(100),
             last_position: None,
-            
+
             // 配置参数
-            bed_entry_threshold: 15,      // 重量值>15认为上床
-            bed_exit_threshold: 10,       // 重量值<10认为离床
+            bed_entry_threshold: 15,       // 重量值>15认为上床
+            bed_exit_threshold: 10,        // 重量值<10认为离床
             movement_score_threshold: 3.0, // 体动评分阈值
             sampling_config: SmartSamplingConfig::default(),
             vital_signs_config: VitalSignsConfig::default(),
-            
+
             // 事件驱动状态
             last_vital_signs_event: None,
             last_apnea_event: None,
@@ -72,12 +74,14 @@ impl MattressEventEngine {
 
         // 数据有效性检查
         if data.heart_rate < 0 || data.breath_rate < 0 || data.apnea_count < 0 {
-            return Err(crate::errors::AppError::ValidationError("生命体征数据不能为负数".into()));
+            return Err(crate::errors::AppError::ValidationError(
+                "生命体征数据不能为负数".into(),
+            ));
         }
 
         // 1. 状态检测和事件生成
         let new_state = self.detect_state(data);
-        
+
         // 2. 上床/下床事件检测
         if new_state != self.state {
             if let Some(event) = self.detect_state_change(&new_state, timestamp, data) {
@@ -86,7 +90,7 @@ impl MattressEventEngine {
             }
             self.state = new_state.clone();
             self.state_history.push_back((new_state, timestamp));
-            
+
             // 保持历史记录在合理范围内
             if self.state_history.len() > 100 {
                 self.state_history.pop_front();
@@ -96,19 +100,22 @@ impl MattressEventEngine {
         // 3. 事件驱动检测（只在床状态下）
         if self.state == MattressState::OnBed {
             let initial_event_count = events.len();
-            
+
             // 3.1 生命体征异常检测
             if let Some(event) = self.detect_vital_signs_anomaly(timestamp, data) {
                 events.push(event);
-                warn!("检测到生命体征异常: 心率={}, 呼吸率={}", data.heart_rate, data.breath_rate);
+                warn!(
+                    "检测到生命体征异常: 心率={}, 呼吸率={}",
+                    data.heart_rate, data.breath_rate
+                );
             }
-            
+
             // 3.2 呼吸暂停事件检测
             if let Some(event) = self.detect_apnea_event(timestamp, data) {
                 events.push(event);
                 warn!("检测到呼吸暂停事件: 暂停次数={}", data.apnea_count);
             }
-            
+
             // 3.3 体湿异常事件检测
             if let Some(event) = self.detect_moisture_alert(timestamp, data) {
                 events.push(event);
@@ -116,19 +123,22 @@ impl MattressEventEngine {
                     warn!("检测到体湿异常事件");
                 }
             }
-            
+
             // 3.4 体动事件检测
             if let Some(event) = self.detect_movement_event(timestamp, data) {
                 events.push(event);
                 info!("检测到有意义体动事件");
             }
-            
+
             // 3.5 定时完整数据采集（只在床状态）
             if let Some(event) = self.detect_scheduled_measurement(timestamp, data) {
                 events.push(event);
-                info!("定时完整数据采集: 心率={}, 呼吸率={}", data.heart_rate, data.breath_rate);
+                info!(
+                    "定时完整数据采集: 心率={}, 呼吸率={}",
+                    data.heart_rate, data.breath_rate
+                );
             }
-            
+
             // 记录事件生成统计
             let new_events = events.len() - initial_event_count;
             if new_events > 0 {
@@ -140,7 +150,11 @@ impl MattressEventEngine {
         self.last_position = Some(data.position);
 
         // 5. 记录处理统计
-        debug!("床垫数据处理完成: 生成 {} 个事件, 当前状态: {:?}", events.len(), self.state);
+        debug!(
+            "床垫数据处理完成: 生成 {} 个事件, 当前状态: {:?}",
+            events.len(),
+            self.state
+        );
 
         Ok(events)
     }
@@ -155,7 +169,7 @@ impl MattressEventEngine {
                 } else {
                     MattressState::OffBed
                 }
-            },
+            }
             "mov" => MattressState::Moving,
             "call" => MattressState::Calling,
             _ => MattressState::OffBed,
@@ -164,16 +178,19 @@ impl MattressEventEngine {
 
     // 以下方法实现与原有SmartMattressFilter相同的事件检测逻辑
     // 为节省空间，这里只展示关键方法签名，具体实现与之前相同
-    
-    fn detect_state_change(&mut self, new_state: &MattressState, timestamp: DateTime<Utc>, data: &MattressData) -> Option<MattressEvent> {
+
+    fn detect_state_change(
+        &mut self,
+        new_state: &MattressState,
+        timestamp: DateTime<Utc>,
+        data: &MattressData,
+    ) -> Option<MattressEvent> {
         match (&self.state, new_state) {
-            (MattressState::OffBed, MattressState::OnBed) => {
-                Some(MattressEvent::BedEntry {
-                    timestamp,
-                    confidence: self.calculate_bed_entry_confidence(data),
-                    weight_value: data.weight_value,
-                })
-            },
+            (MattressState::OffBed, MattressState::OnBed) => Some(MattressEvent::BedEntry {
+                timestamp,
+                confidence: self.calculate_bed_entry_confidence(data),
+                weight_value: data.weight_value,
+            }),
             (MattressState::OnBed, MattressState::OffBed) => {
                 let duration = self.calculate_bed_duration(timestamp);
                 Some(MattressEvent::BedExit {
@@ -181,12 +198,16 @@ impl MattressEventEngine {
                     confidence: self.calculate_bed_exit_confidence(data),
                     duration_minutes: duration,
                 })
-            },
+            }
             _ => None,
         }
     }
 
-    fn detect_vital_signs_anomaly(&mut self, timestamp: DateTime<Utc>, data: &MattressData) -> Option<MattressEvent> {
+    fn detect_vital_signs_anomaly(
+        &mut self,
+        timestamp: DateTime<Utc>,
+        data: &MattressData,
+    ) -> Option<MattressEvent> {
         // 检查采样间隔
         if !self.should_sample_vital_signs(timestamp) {
             return None;
@@ -194,7 +215,7 @@ impl MattressEventEngine {
 
         let heart_rate = data.heart_rate;
         let breath_rate = data.breath_rate;
-        
+
         // 数据有效性检查
         if heart_rate <= 0 || breath_rate <= 0 {
             return None;
@@ -202,11 +223,11 @@ impl MattressEventEngine {
 
         let (hr_min, hr_max) = self.vital_signs_config.heart_rate_normal_range;
         let (br_min, br_max) = self.vital_signs_config.breath_rate_normal_range;
-        
+
         let mut anomaly_type = String::new();
         let mut heart_rate_level = AlertLevel::Normal;
         let mut breath_rate_level = AlertLevel::Normal;
-        
+
         // 心率异常检测
         if heart_rate < hr_min {
             heart_rate_level = AlertLevel::Warning;
@@ -215,7 +236,7 @@ impl MattressEventEngine {
             heart_rate_level = AlertLevel::Warning;
             anomaly_type.push_str("heart_rate_high;");
         }
-        
+
         // 呼吸频率异常检测
         if breath_rate < br_min {
             breath_rate_level = AlertLevel::Warning;
@@ -224,7 +245,7 @@ impl MattressEventEngine {
             breath_rate_level = AlertLevel::Warning;
             anomaly_type.push_str("breath_rate_high;");
         }
-        
+
         // 危险级别判断
         if heart_rate < 40 || heart_rate > 150 {
             heart_rate_level = AlertLevel::Critical;
@@ -232,18 +253,16 @@ impl MattressEventEngine {
         if breath_rate < 8 || breath_rate > 30 {
             breath_rate_level = AlertLevel::Critical;
         }
-        
+
         // 只有在异常情况下才生成事件
         if !anomaly_type.is_empty() {
             self.last_vital_signs_event = Some(timestamp);
-            
+
             warn!(
                 "生命体征异常检测: 心率={}({:?}), 呼吸率={}({:?}), 异常类型: {}",
-                heart_rate, heart_rate_level,
-                breath_rate, breath_rate_level,
-                anomaly_type
+                heart_rate, heart_rate_level, breath_rate, breath_rate_level, anomaly_type
             );
-            
+
             Some(MattressEvent::VitalSignsAnomaly {
                 timestamp,
                 heart_rate,
@@ -258,37 +277,41 @@ impl MattressEventEngine {
         }
     }
 
-    fn detect_apnea_event(&mut self, timestamp: DateTime<Utc>, data: &MattressData) -> Option<MattressEvent> {
+    fn detect_apnea_event(
+        &mut self,
+        timestamp: DateTime<Utc>,
+        data: &MattressData,
+    ) -> Option<MattressEvent> {
         let current_apnea = data.apnea_count;
-        
+
         // 呼吸暂停检测逻辑
         if current_apnea > 0 {
             if self.apnea_start_time.is_none() {
                 // 开始新的呼吸暂停事件
                 self.apnea_start_time = Some(timestamp);
             }
-            
+
             let duration = if let Some(start_time) = self.apnea_start_time {
                 timestamp.signed_duration_since(start_time).num_seconds() as i32
             } else {
                 0
             };
-            
+
             let severity = if duration >= self.vital_signs_config.apnea_critical_threshold {
                 AlertLevel::Critical
             } else {
                 AlertLevel::Warning
             };
-            
+
             // 更新最后事件时间，避免频繁触发
             if self.should_trigger_apnea_event(timestamp) {
                 self.last_apnea_event = Some(timestamp);
-                
+
                 warn!(
                     "呼吸暂停事件检测: 持续时间={}秒, 严重程度={:?}, 暂停次数={}",
                     duration, severity, current_apnea
                 );
-                
+
                 Some(MattressEvent::ApneaEvent {
                     timestamp,
                     duration_seconds: duration,
@@ -296,7 +319,10 @@ impl MattressEventEngine {
                     apnea_count: current_apnea,
                 })
             } else {
-                debug!("呼吸暂停持续中: 持续时间={}秒, 暂停次数={}", duration, current_apnea);
+                debug!(
+                    "呼吸暂停持续中: 持续时间={}秒, 暂停次数={}",
+                    duration, current_apnea
+                );
                 None
             }
         } else {
@@ -309,24 +335,29 @@ impl MattressEventEngine {
         }
     }
 
-    fn detect_moisture_alert(&mut self, timestamp: DateTime<Utc>, data: &MattressData) -> Option<MattressEvent> {
+    fn detect_moisture_alert(
+        &mut self,
+        timestamp: DateTime<Utc>,
+        data: &MattressData,
+    ) -> Option<MattressEvent> {
         let current_wet = data.wet_status;
-        
+
         match (current_wet, self.last_moisture_event) {
             (true, None) => {
                 // 开始体湿事件
                 self.moisture_start_time = Some(timestamp);
                 self.last_moisture_event = Some((true, timestamp));
                 None // 不立即触发，等待持续时间
-            },
+            }
             (true, Some((prev_wet, prev_time))) if prev_wet => {
                 // 持续体湿，检查是否达到警告阈值
-                let duration_minutes = timestamp.signed_duration_since(prev_time).num_minutes() as i32;
-                
+                let duration_minutes =
+                    timestamp.signed_duration_since(prev_time).num_minutes() as i32;
+
                 if duration_minutes >= self.vital_signs_config.moisture_alert_threshold_minutes {
                     if self.should_trigger_moisture_event(timestamp) {
                         self.last_moisture_event = Some((true, timestamp));
-                        
+
                         Some(MattressEvent::MoistureAlert {
                             timestamp,
                             wet_status: true,
@@ -339,25 +370,30 @@ impl MattressEventEngine {
                 } else {
                     None
                 }
-            },
+            }
             (false, Some((prev_wet, prev_time))) if prev_wet => {
                 // 体湿结束事件
-                let duration_minutes = timestamp.signed_duration_since(prev_time).num_minutes() as i32;
+                let duration_minutes =
+                    timestamp.signed_duration_since(prev_time).num_minutes() as i32;
                 self.last_moisture_event = Some((false, timestamp));
                 self.moisture_start_time = None;
-                
+
                 Some(MattressEvent::MoistureAlert {
                     timestamp,
                     wet_status: false,
                     duration_minutes,
                     severity: AlertLevel::Normal,
                 })
-            },
+            }
             _ => None,
         }
     }
 
-    fn detect_movement_event(&mut self, timestamp: DateTime<Utc>, data: &MattressData) -> Option<MattressEvent> {
+    fn detect_movement_event(
+        &mut self,
+        timestamp: DateTime<Utc>,
+        data: &MattressData,
+    ) -> Option<MattressEvent> {
         if data.status != "mov" {
             return None;
         }
@@ -377,24 +413,28 @@ impl MattressEventEngine {
         }
     }
 
-    fn detect_scheduled_measurement(&mut self, timestamp: DateTime<Utc>, data: &MattressData) -> Option<MattressEvent> {
+    fn detect_scheduled_measurement(
+        &mut self,
+        timestamp: DateTime<Utc>,
+        data: &MattressData,
+    ) -> Option<MattressEvent> {
         // 只在床状态下进行定时采集
         if self.state != MattressState::OnBed {
             return None;
         }
-        
+
         // 检查是否到了定时采集时间
         if !self.should_sample_scheduled_measurement(timestamp) {
             return None;
         }
-        
+
         // 数据有效性检查
         if data.heart_rate <= 0 || data.breath_rate <= 0 {
             return None;
         }
-        
+
         self.last_scheduled_measurement = Some(timestamp);
-        
+
         Some(MattressEvent::ScheduledMeasurement {
             timestamp,
             heart_rate: data.heart_rate,
@@ -452,11 +492,17 @@ impl MattressEventEngine {
     // 智能采样策略辅助方法
     fn should_sample_vital_signs(&self, _timestamp: DateTime<Utc>) -> bool {
         let alert_level = self.assess_current_alert_level();
-        
+
         match alert_level {
-            AlertLevel::Normal => self.check_time_interval_minutes(self.sampling_config.normal_interval_minutes),
-            AlertLevel::Warning => self.check_time_interval_minutes(self.sampling_config.warning_interval_minutes),
-            AlertLevel::Critical => self.check_time_interval_seconds(self.sampling_config.critical_interval_seconds),
+            AlertLevel::Normal => {
+                self.check_time_interval_minutes(self.sampling_config.normal_interval_minutes)
+            }
+            AlertLevel::Warning => {
+                self.check_time_interval_minutes(self.sampling_config.warning_interval_minutes)
+            }
+            AlertLevel::Critical => {
+                self.check_time_interval_seconds(self.sampling_config.critical_interval_seconds)
+            }
         }
     }
 
@@ -511,10 +557,9 @@ impl MattressEventEngine {
         }
     }
 
-    
     fn calculate_bed_entry_confidence(&self, data: &MattressData) -> f32 {
         let mut confidence: f32 = 0.0;
-        
+
         // 基于重量值的置信度
         if data.weight_value >= self.bed_entry_threshold {
             confidence += 0.6;
@@ -522,23 +567,23 @@ impl MattressEventEngine {
                 confidence += 0.2; // 高重量值增加置信度
             }
         }
-        
+
         // 基于状态的置信度
         if data.status == "on" {
             confidence += 0.3;
         }
-        
+
         // 基于心率的置信度
         if data.heart_rate > 30 && data.heart_rate < 120 {
             confidence += 0.1;
         }
-        
+
         confidence.min(1.0)
     }
-    
+
     fn calculate_bed_exit_confidence(&self, data: &MattressData) -> f32 {
         let mut confidence: f32 = 0.0;
-        
+
         // 基于重量值的置信度
         if data.weight_value <= self.bed_exit_threshold {
             confidence += 0.7;
@@ -546,15 +591,15 @@ impl MattressEventEngine {
                 confidence += 0.2; // 极低重量值增加置信度
             }
         }
-        
+
         // 基于状态的置信度
         if data.status == "off" {
             confidence += 0.3;
         }
-        
+
         confidence.min(1.0)
     }
-    
+
     fn calculate_bed_duration(&self, _timestamp: DateTime<Utc>) -> f32 {
         // 简化的持续时间计算，实际应该基于上床时间
         30.0 // 默认30分钟，实际应该根据实际上床时间计算

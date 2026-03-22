@@ -25,23 +25,34 @@ impl<'a> DeviceService<'a> {
     /// 注册设备
     pub async fn register(&self, req: RegisterDeviceRequest) -> AppResult<DeviceResponse> {
         // 验证设备类型
-        DeviceType::from_str(&req.device_type)
-            .ok_or_else(|| AppError::ValidationError(format!("未知设备类型: {}", req.device_type)))?;
+        DeviceType::from_str(&req.device_type).ok_or_else(|| {
+            AppError::ValidationError(format!("未知设备类型: {}", req.device_type))
+        })?;
 
         // 检查序列号是否已存在
-        if self.device_repo.exists_by_serial(&req.serial_number).await? {
+        if self
+            .device_repo
+            .exists_by_serial(&req.serial_number)
+            .await?
+        {
             return Err(AppError::ValidationError("设备序列号已存在".into()));
         }
 
-        let device = self.device_repo.insert(&NewDevice {
-            serial_number: req.serial_number,
-            device_type: req.device_type,
-            firmware_version: req.firmware_version,
-            status: "active".to_string(),
-            metadata: req.metadata,
-        }).await?;
+        let device = self
+            .device_repo
+            .insert(&NewDevice {
+                serial_number: req.serial_number,
+                device_type: req.device_type,
+                firmware_version: req.firmware_version,
+                status: "active".to_string(),
+                metadata: req.metadata,
+            })
+            .await?;
 
-        info!("设备注册成功: device_id={}, serial_number={}", device.id, device.serial_number);
+        info!(
+            "设备注册成功: device_id={}, serial_number={}",
+            device.id, device.serial_number
+        );
 
         Ok(device.into())
     }
@@ -63,10 +74,13 @@ impl<'a> DeviceService<'a> {
             .ok_or_else(|| AppError::ValidationError(format!("未知设备类型: {}", device_type)))?;
 
         // 自动创建设备
-        let device = self.device_repo.insert(&NewDevice::new(
-            serial_number.to_string(),
-            dev_type.as_str().to_string(),
-        )).await?;
+        let device = self
+            .device_repo
+            .insert(&NewDevice::new(
+                serial_number.to_string(),
+                dev_type.as_str().to_string(),
+            ))
+            .await?;
 
         info!(
             "设备自动注册成功: device_id={}, device_type={}",
@@ -100,12 +114,15 @@ impl<'a> DeviceService<'a> {
 
     /// 更新设备
     pub async fn update(&self, id: &Uuid, req: UpdateDeviceRequest) -> AppResult<DeviceResponse> {
-        let device = self.device_repo.update(
-            id,
-            req.firmware_version.as_deref(),
-            req.status.as_deref(),
-            req.metadata.as_ref(),
-        ).await?;
+        let device = self
+            .device_repo
+            .update(
+                id,
+                req.firmware_version.as_deref(),
+                req.status.as_deref(),
+                req.metadata.as_ref(),
+            )
+            .await?;
 
         info!("设备更新成功: device_id={}", id);
 
@@ -126,19 +143,25 @@ impl<'a> DeviceService<'a> {
         let limit = page_size as i64;
         let offset = ((page - 1) * page_size) as i64;
 
-        let devices = self.device_repo.find_all(
-            query.device_type.as_deref(),
-            query.status.as_deref(),
-            query.serial_number.as_deref(),
-            limit,
-            offset,
-        ).await?;
+        let devices = self
+            .device_repo
+            .find_all(
+                query.device_type.as_deref(),
+                query.status.as_deref(),
+                query.serial_number.as_deref(),
+                limit,
+                offset,
+            )
+            .await?;
 
-        let total = self.device_repo.count(
-            query.device_type.as_deref(),
-            query.status.as_deref(),
-            query.serial_number.as_deref(),
-        ).await?;
+        let total = self
+            .device_repo
+            .count(
+                query.device_type.as_deref(),
+                query.status.as_deref(),
+                query.serial_number.as_deref(),
+            )
+            .await?;
 
         let mut data = Vec::with_capacity(devices.len());
         for device in devices {

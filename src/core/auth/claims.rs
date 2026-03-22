@@ -27,12 +27,7 @@ pub struct Claims {
 
 impl Claims {
     /// 创建新的 Access Token Claims
-    pub fn new_access(
-        user_id: &Uuid,
-        role: &str,
-        expires_at: DateTime<Utc>,
-        issuer: &str,
-    ) -> Self {
+    pub fn new_access(user_id: &Uuid, role: &str, expires_at: DateTime<Utc>, issuer: &str) -> Self {
         let now = Utc::now();
         Self {
             iss: issuer.to_string(),
@@ -48,11 +43,7 @@ impl Claims {
     }
 
     /// 创建新的 Refresh Token Claims
-    pub fn new_refresh(
-        user_id: &Uuid,
-        expires_at: DateTime<Utc>,
-        issuer: &str,
-    ) -> Self {
+    pub fn new_refresh(user_id: &Uuid, expires_at: DateTime<Utc>, issuer: &str) -> Self {
         let now = Utc::now();
         Self {
             iss: issuer.to_string(),

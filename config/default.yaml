@@ -12,7 +12,11 @@ mqtt:
   port: 1883
   client_id: "remipedia-server"
   topic_prefix: "remipedia"
-  enabled: false
+  enabled: true
+
+tcp:
+  port: 5858
+  enabled: true
 
 jwt:
   secret: "your-secret-key-change-in-production"

@@ -5,6 +5,7 @@ pub struct Settings {
     pub database: DatabaseConfig,
     pub server: ServerConfig,
     pub mqtt: MqttConfig,
+    pub tcp: TcpConfig,
     pub jwt: JwtConfig,
 }
 
@@ -35,6 +36,12 @@ pub struct JwtConfig {
     pub secret: String,
     pub expiration_hours: u64,
     pub refresh_expiration_days: u64,
+}
+
+#[derive(Debug, Deserialize, Clone)]
+pub struct TcpConfig {
+    pub port: u16,
+    pub enabled: bool,
 }
 
 impl Settings {

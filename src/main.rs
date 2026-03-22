@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use log::info;
+use log::{error, info};
 use rocket::fairing::{Fairing, Info, Kind};
 use rocket::http::Header;
 use rocket::{Build, Rocket};
@@ -10,7 +10,7 @@ use sqlx::PgPool;
 use remipedia::api::swagger_ui;
 use remipedia::api::routes;
 use remipedia::config::Settings;
-use remipedia::ingest::MqttIngest;
+use remipedia::ingest::{MqttIngest, TcpServer};
 
 /// CORS Fairing
 pub struct Cors;
@@ -85,6 +85,20 @@ async fn main() -> anyhow::Result<()> {
             info!("📡 MQTT 客户端启动中...");
             let mqtt_client = MqttIngest::new(mqtt_pool, &mqtt_config).await;
             mqtt_client.subscribe().await;
+        });
+    }
+
+    // 启动 TCP 服务器（如果启用）
+    if settings.tcp.enabled {
+        let tcp_pool = Arc::new(pool.clone());
+        let tcp_config = settings.tcp.clone();
+
+        tokio::spawn(async move {
+            info!("🔌 TCP 服务器启动中...");
+            let tcp_server = TcpServer::new(tcp_config, tcp_pool);
+            if let Err(e) = tcp_server.start().await {
+                error!("TCP 服务器启动失败: {}", e);
+            }
         });
     }
 

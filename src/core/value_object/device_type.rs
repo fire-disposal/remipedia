@@ -8,6 +8,7 @@ pub enum DeviceType {
     HeartRateMonitor,
     FallDetector,
     SpO2Sensor,
+    SmartMattress,
 }
 
 impl DeviceType {
@@ -17,6 +18,7 @@ impl DeviceType {
             "heart_rate_monitor" => Some(Self::HeartRateMonitor),
             "fall_detector" => Some(Self::FallDetector),
             "spo2_sensor" => Some(Self::SpO2Sensor),
+            "smart_mattress" => Some(Self::SmartMattress),
             _ => None,
         }
     }
@@ -27,12 +29,13 @@ impl DeviceType {
             Self::HeartRateMonitor => "heart_rate_monitor",
             Self::FallDetector => "fall_detector",
             Self::SpO2Sensor => "spo2_sensor",
+            Self::SmartMattress => "smart_mattress",
         }
     }
 
     /// 获取所有设备类型
     pub fn all() -> &'static [Self] {
-        &[Self::HeartRateMonitor, Self::FallDetector, Self::SpO2Sensor]
+        &[Self::HeartRateMonitor, Self::FallDetector, Self::SpO2Sensor, Self::SmartMattress]
     }
 }
 

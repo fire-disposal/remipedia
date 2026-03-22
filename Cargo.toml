@@ -48,6 +48,13 @@ jsonwebtoken = "10"
 # 哈希
 sha2 = "0.10"
 
+# MessagePack 解析
+rmp = "0.8"
+rmp-serde = "1.1"
+
+# CRC 校验
+crc = "3.0"
+
 # 验证
 validator = { version = "0.18", features = ["derive"] }
 

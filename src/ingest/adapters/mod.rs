@@ -2,6 +2,11 @@ mod adapter_trait;
 mod heart_rate;
 mod fall_detector;
 mod spo2;
+mod smart_mattress;
+mod smart_mattress_filter;
+
+#[cfg(test)]
+mod smart_mattress_test;
 
 pub use adapter_trait::DeviceAdapter;
 use std::collections::HashMap;
@@ -23,6 +28,7 @@ impl AdapterRegistry {
         adapters.insert(DeviceType::HeartRateMonitor, Arc::new(heart_rate::HeartRateAdapter));
         adapters.insert(DeviceType::FallDetector, Arc::new(fall_detector::FallDetectorAdapter));
         adapters.insert(DeviceType::SpO2Sensor, Arc::new(spo2::SpO2Adapter));
+        adapters.insert(DeviceType::SmartMattress, Arc::new(smart_mattress::SmartMattressAdapter::new()));
 
         Self { adapters }
     }

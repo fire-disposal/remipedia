@@ -13,6 +13,7 @@ RUN cargo build --release && rm -rf src
 
 COPY src ./src
 COPY migrations ./migrations
+COPY static ./static
 RUN touch src/main.rs src/lib.rs && cargo build --release
 
 # ============================================

@@ -1,6 +1,10 @@
 use std::sync::Arc;
 
-use log::{error, info};
+use argon2::{
+    password_hash::{rand_core::OsRng, SaltString, PasswordHasher},
+    Argon2,
+};
+use log::{error, info, warn};
 use rocket::fairing::{Fairing, Info, Kind};
 use rocket::http::Header;
 use rocket::{Build, Rocket};
@@ -11,6 +15,7 @@ use remipedia::api::routes;
 use remipedia::api::swagger_ui;
 use remipedia::config::Settings;
 use remipedia::ingest::{MqttIngest, TcpServer};
+use remipedia::repository::UserRepository;
 
 /// CORS Fairing
 pub struct Cors;
@@ -51,6 +56,48 @@ fn init_logging() {
         .init();
 }
 
+/// 哈希密码
+fn hash_password(password: &str) -> Result<String, anyhow::Error> {
+    let salt = SaltString::generate(&mut OsRng);
+    let argon2 = Argon2::default();
+    argon2
+        .hash_password(password.as_bytes(), &salt)
+        .map(|hash| hash.to_string())
+        .map_err(|e| anyhow::anyhow!("密码哈希失败: {}", e))
+}
+
+/// 初始化管理员账户
+async fn init_admin(pool: &PgPool) -> anyhow::Result<()> {
+    let user_repo = UserRepository::new(pool);
+
+    // 检查是否已存在管理员
+    if user_repo.exists_admin().await? {
+        info!("✅ 管理员账户已存在，跳过初始化");
+        return Ok(());
+    }
+
+    // 从环境变量获取管理员信息，或使用默认值
+    let admin_username = std::env::var("ADMIN_USERNAME").unwrap_or_else(|_| "admin".to_string());
+    let admin_password = std::env::var("ADMIN_PASSWORD").unwrap_or_else(|_| "admin123".to_string());
+
+    // 哈希密码
+    let password_hash = hash_password(&admin_password)?;
+
+    // 创建管理员
+    let admin = user_repo.create_admin(&admin_username, &password_hash).await?;
+
+    info!("🎉 初始管理员账户创建成功!");
+    info!("   📧 用户名: {}", admin.username);
+    
+    // 安全提示
+    if std::env::var("ADMIN_PASSWORD").is_err() {
+        warn!("⚠️  使用了默认密码 'admin123'，请立即修改密码！");
+        warn!("   设置环境变量 ADMIN_PASSWORD 来使用自定义密码");
+    }
+
+    Ok(())
+}
+
 /// 创建 Rocket 应用
 async fn build_rocket(settings: &Settings, pool: PgPool) -> Rocket<Build> {
     rocket::build()
@@ -84,6 +131,9 @@ async fn main() -> anyhow::Result<()> {
         .map_err(|e| anyhow::anyhow!("数据库连接失败: {}", e))?;
 
     info!("🔌 数据库连接池创建成功");
+
+    // 初始化管理员账户
+    init_admin(&pool).await?;
 
     // 启动 MQTT 客户端（如果启用）
     if settings.mqtt.enabled {

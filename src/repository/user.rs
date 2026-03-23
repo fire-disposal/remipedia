@@ -138,4 +138,30 @@ impl<'a> UserRepository<'a> {
 
         Ok(())
     }
+
+    /// 检查是否存在管理员用户
+    pub async fn exists_admin(&self) -> AppResult<bool> {
+        let result: Option<(i32,)> = sqlx::query_as(
+            r#"SELECT 1 FROM "user" WHERE role = 'admin' LIMIT 1"#,
+        )
+        .fetch_optional(self.pool)
+        .await
+        .map_err(AppError::DatabaseError)?;
+
+        Ok(result.is_some())
+    }
+
+    /// 创建初始管理员
+    pub async fn create_admin(&self, username: &str, password_hash: &str) -> AppResult<User> {
+        sqlx::query_as::<_, User>(
+            r#"INSERT INTO "user" (username, password_hash, role, status)
+               VALUES ($1, $2, 'admin', 'active')
+               RETURNING id, username, password_hash, role, phone, email, avatar_url, status, last_login_at, created_at, updated_at"#,
+        )
+        .bind(username)
+        .bind(password_hash)
+        .fetch_one(self.pool)
+        .await
+        .map_err(AppError::DatabaseError)
+    }
 }

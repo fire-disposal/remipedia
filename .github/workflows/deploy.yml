@@ -40,9 +40,6 @@ jobs:
       - name: Cargo check
         run: cargo check --locked
 
-      - name: Install PostgreSQL client
-        run: sudo apt-get update && sudo apt-get install -y postgresql-client
-
       - name: Validate SQL migrations
         run: |
           for i in {1..20}; do
@@ -51,13 +48,11 @@ jobs:
             fi
             sleep 2
           done
-          export PGPASSWORD=postgres
-          for migration in $(ls migrations/*.up.sql | sort); do
-            echo "Applying ${migration}"
-            psql "postgresql://postgres:postgres@127.0.0.1:5432/remipedia" \
-              -v ON_ERROR_STOP=1 \
-              -f "${migration}"
-          done
+          docker run --rm --network host \
+            -e DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:5432/remipedia \
+            -v "${{ github.workspace }}/migrations:/migrations" \
+            ghcr.io/launchbadge/sqlx-cli:latest \
+            migrate run --source /migrations
 
   build-and-deploy:
     runs-on: ubuntu-latest

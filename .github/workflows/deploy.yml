@@ -40,19 +40,8 @@ jobs:
       - name: Cargo check
         run: cargo check --locked
 
-      - name: Validate SQL migrations
-        run: |
-          for i in {1..20}; do
-            if pg_isready -h 127.0.0.1 -U postgres; then
-              break
-            fi
-            sleep 2
-          done
-          docker run --rm --network host \
-            -e DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:5432/remipedia \
-            -v "${{ github.workspace }}/migrations:/migrations" \
-            ghcr.io/launchbadge/sqlx-cli:latest \
-            migrate run --source /migrations
+      # 注意：数据库迁移已由应用程序启动时自动执行
+      # 详见 src/main.rs 中的 run_migrations() 函数
 
   build-and-deploy:
     runs-on: ubuntu-latest

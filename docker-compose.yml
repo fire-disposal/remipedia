@@ -16,8 +16,8 @@ services:
       - APP_JWT_SECRET=remipedia-jwt-secret-change-if-needed
       - RUST_LOG=remipedia=info,sqlx=warn
     depends_on:
-      migrate:
-        condition: service_completed_successfully
+      postgres:
+        condition: service_healthy
     networks:
       - remipedia-net
     healthcheck:
@@ -27,21 +27,8 @@ services:
       retries: 3
       start_period: 40s
 
-  # 数据库迁移服务
-  migrate:
-    image: ghcr.io/launchbadge/sqlx-cli:latest
-    container_name: remipedia-migrate
-    volumes:
-      - ./migrations:/migrations
-    environment:
-      - DATABASE_URL=postgresql://postgres:postgres@postgres:5432/remipedia
-    command: ["migrate", "run", "--source", "/migrations"]
-    depends_on:
-      postgres:
-        condition: service_healthy
-    networks:
-      - remipedia-net
-    restart: "no"
+  # 注意：数据库迁移已由应用程序启动时自动执行
+  # 详见 src/main.rs 中的 run_migrations() 函数
 
   postgres:
     image: postgres:16-alpine

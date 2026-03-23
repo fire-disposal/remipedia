@@ -17,7 +17,7 @@ use remipedia::config::Settings;
 use remipedia::ingest::{MqttIngest, TcpServer};
 use remipedia::repository::UserRepository;
 
-/// CORS Fairing
+/// CORS Fairing - 尽可能宽松的配置
 pub struct Cors;
 
 #[rocket::async_trait]
@@ -31,19 +31,33 @@ impl Fairing for Cors {
 
     async fn on_response<'r>(
         &self,
-        _request: &'r rocket::Request<'_>,
+        request: &'r rocket::Request<'_>,
         response: &mut rocket::Response<'r>,
     ) {
+        // 允许所有来源
         response.set_header(Header::new("Access-Control-Allow-Origin", "*"));
+
+        // 允许所有标准HTTP方法
         response.set_header(Header::new(
             "Access-Control-Allow-Methods",
-            "GET, POST, PUT, DELETE, OPTIONS",
+            "GET, POST, PUT, DELETE, PATCH, OPTIONS, HEAD, CONNECT, TRACE",
         ));
-        response.set_header(Header::new(
-            "Access-Control-Allow-Headers",
-            "Authorization, Content-Type",
-        ));
+
+        // 动态返回请求的 Access-Control-Request-Headers，或允许所有
+        if let Some(request_headers) = request.headers().get_one("Access-Control-Request-Headers") {
+            response.set_header(Header::new(
+                "Access-Control-Allow-Headers",
+                request_headers,
+            ));
+        } else {
+            response.set_header(Header::new("Access-Control-Allow-Headers", "*"));
+        }
+
+        // 预检请求缓存时间（24小时）
         response.set_header(Header::new("Access-Control-Max-Age", "86400"));
+
+        // 暴露所有响应头给客户端
+        response.set_header(Header::new("Access-Control-Expose-Headers", "*"));
     }
 }
 

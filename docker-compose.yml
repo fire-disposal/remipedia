@@ -3,7 +3,7 @@ version: '3.8'
 services:
   app:
     build: .
-    image: ghcr.io/${GITHUB_REPOSITORY:-remipedia/remipedia}:latest
+    image: ${IMAGE_TAG:-ghcr.io/remipedia/remipedia:latest}
     container_name: remipedia-app
     restart: unless-stopped
     ports:

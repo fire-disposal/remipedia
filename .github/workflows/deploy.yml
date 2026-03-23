@@ -70,7 +70,10 @@ jobs:
           # 创建项目目录并同步配置文件
           ssh ${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }} "mkdir -p $PROJECT_DIR"
           
-          scp docker-compose.yml mosquitto.conf \
+          # 生成 .env 文件（包含镜像名）
+          echo "IMAGE_TAG=ghcr.io/${{ github.repository }}:latest" > .env
+          
+          scp docker-compose.yml mosquitto.conf .env \
             ${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }}:$PROJECT_DIR/
 
           # 远程执行部署（在项目目录内）
@@ -98,6 +101,8 @@ jobs:
       # ✅ 健康检查
       - name: Health check
         run: |
+          PROJECT_DIR="${{ secrets.DEPLOY_PATH }}/remipedia"
+          
           echo "⏳ 等待服务启动..."
           sleep 10
           
@@ -107,13 +112,16 @@ jobs:
             
             # 通过 SSH 在服务器上执行健康检查
             HEALTH_STATUS=$(ssh ${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }} "
-              # 检查容器是否运行
-              if ! docker ps --filter 'name=remipedia' --filter 'status=running' --format '{{.Names}}' | grep -q .; then
+              cd $PROJECT_DIR
+              
+              # 检查 remipedia 容器是否运行
+              if ! docker-compose ps --filter 'status=running' --services | grep -q 'app'; then
                 echo 'CONTAINER_NOT_RUNNING'
+                docker-compose logs --tail=20 app 2>/dev/null || true
                 exit 1
               fi
               
-              # 检查 HTTP 端点（根据你的实际端口修改）
+              # 检查 HTTP 端点
               if curl -sf http://127.0.0.1:8000/health > /dev/null 2>&1 || \
                  curl -sf http://127.0.0.1:8000/ > /dev/null 2>&1; then
                 echo 'HEALTHY'
@@ -127,7 +135,8 @@ jobs:
               echo "✅ 健康检查通过！"
               exit 0
             elif [ "$HEALTH_STATUS" = "CONTAINER_NOT_RUNNING" ]; then
-              echo "❌ 容器未运行"
+              echo "❌ 容器未运行，查看日志："
+              ssh ${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }} "cd $PROJECT_DIR && docker-compose logs --tail=30 app" || true
               exit 1
             fi
             
@@ -135,5 +144,6 @@ jobs:
             sleep 5
           done
           
-          echo "❌ 健康检查失败，部署可能有问题"
+          echo "❌ 健康检查失败，查看日志："
+          ssh ${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }} "cd $PROJECT_DIR && docker-compose logs --tail=50 app" || true
           exit 1

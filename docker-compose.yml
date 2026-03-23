@@ -1,26 +1,22 @@
 version: '3.8'
 
 services:
-  # 🚀 主应用服务
   app:
     build: .
     image: ghcr.io/${GITHUB_REPOSITORY:-remipedia/remipedia}:latest
     container_name: remipedia-app
     restart: unless-stopped
     ports:
-      - "${APP_PORT:-8000}:8000"   # HTTP API
-      - "${TCP_PORT:-5858}:5858"   # TCP床垫数据
+      - "8000:8000"
+      - "5858:5858"
     environment:
-      - APP_DATABASE_URL=postgresql://remipedia:${DB_PASSWORD:-postgres}@postgres:5432/remipedia
+      - APP_DATABASE_URL=postgresql://postgres:postgres@postgres:5432/remipedia
       - APP_MQTT_BROKER=mqtt
       - APP_MQTT_PORT=1883
-      - APP_JWT_SECRET=${JWT_SECRET:-dev-secret-change-in-production}
-      - RUST_LOG=${RUST_LOG:-remipedia=info,sqlx=warn}
-      - RUST_BACKTRACE=1
+      - APP_JWT_SECRET=remipedia-jwt-secret-change-if-needed
+      - RUST_LOG=remipedia=info,sqlx=warn
     depends_on:
       postgres:
-        condition: service_healthy
-      mqtt:
         condition: service_healthy
     networks:
       - remipedia-net
@@ -31,39 +27,31 @@ services:
       retries: 3
       start_period: 40s
 
-  # 🗄️ PostgreSQL数据库
   postgres:
     image: postgres:16-alpine
     container_name: remipedia-db
     restart: unless-stopped
     environment:
       - POSTGRES_DB=remipedia
-      - POSTGRES_USER=remipedia
-      - POSTGRES_PASSWORD=${DB_PASSWORD:-postgres}
-      - POSTGRES_INITDB_ARGS=--encoding=UTF8 --lc-collate=C --lc-ctype=C
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres
     volumes:
       - postgres_data:/var/lib/postgresql/data
-    ports:
-      - "${DB_PORT:-5432}:5432"
     networks:
       - remipedia-net
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U remipedia"]
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
       interval: 10s
       timeout: 5s
       retries: 5
 
-  # 📡 MQTT消息代理
   mqtt:
     image: eclipse-mosquitto:2.0
     container_name: remipedia-mqtt
     restart: unless-stopped
-    ports:
-      - "${MQTT_PORT:-1883}:1883"
     volumes:
       - ./mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
       - mqtt_data:/mosquitto/data
-      - mqtt_logs:/mosquitto/log
     networks:
       - remipedia-net
     healthcheck:
@@ -79,4 +67,3 @@ networks:
 volumes:
   postgres_data:
   mqtt_data:
-  mqtt_logs:

@@ -62,7 +62,7 @@ impl<'a> UserRepository<'a> {
         .bind(&user.email)
         .fetch_one(self.pool)
         .await
-        .map_err(AppError::DatabaseError)
+        .map_err(Self::map_write_error)
     }
 
     pub async fn update_last_login(&self, id: &Uuid) -> AppResult<()> {
@@ -82,6 +82,36 @@ impl<'a> UserRepository<'a> {
             .await
             .map_err(AppError::DatabaseError)?;
         Ok(())
+    }
+
+    pub async fn update_profile(
+        &self,
+        id: &Uuid,
+        phone: Option<&str>,
+        email: Option<&str>,
+        avatar_url: Option<&str>,
+        status: Option<&str>,
+    ) -> AppResult<User> {
+        sqlx::query_as::<_, User>(
+            r#"UPDATE "user"
+               SET phone = COALESCE($2, phone),
+                   email = COALESCE($3, email),
+                   avatar_url = COALESCE($4, avatar_url),
+                   status = COALESCE($5, status)
+               WHERE id = $1
+               RETURNING id, username, password_hash, role, phone, email, avatar_url, status, last_login_at, created_at, updated_at"#,
+        )
+        .bind(id)
+        .bind(phone)
+        .bind(email)
+        .bind(avatar_url)
+        .bind(status)
+        .fetch_one(self.pool)
+        .await
+        .map_err(|e| match e {
+            sqlx::Error::RowNotFound => AppError::NotFound(format!("用户: {}", id)),
+            other => Self::map_write_error(other),
+        })
     }
 
     pub async fn find_all(
@@ -141,12 +171,11 @@ impl<'a> UserRepository<'a> {
 
     /// 检查是否存在管理员用户
     pub async fn exists_admin(&self) -> AppResult<bool> {
-        let result: Option<(i32,)> = sqlx::query_as(
-            r#"SELECT 1 FROM "user" WHERE role = 'admin' LIMIT 1"#,
-        )
-        .fetch_optional(self.pool)
-        .await
-        .map_err(AppError::DatabaseError)?;
+        let result: Option<(i32,)> =
+            sqlx::query_as(r#"SELECT 1 FROM "user" WHERE role = 'admin' LIMIT 1"#)
+                .fetch_optional(self.pool)
+                .await
+                .map_err(AppError::DatabaseError)?;
 
         Ok(result.is_some())
     }
@@ -162,6 +191,35 @@ impl<'a> UserRepository<'a> {
         .bind(password_hash)
         .fetch_one(self.pool)
         .await
-        .map_err(AppError::DatabaseError)
+        .map_err(Self::map_write_error)
+    }
+
+    /// 将现有用户提升为管理员并启用
+    pub async fn promote_to_admin(&self, user_id: &Uuid, password_hash: &str) -> AppResult<User> {
+        sqlx::query_as::<_, User>(
+            r#"UPDATE "user"
+               SET role = 'admin',
+                   status = 'active',
+                   password_hash = $2
+               WHERE id = $1
+               RETURNING id, username, password_hash, role, phone, email, avatar_url, status, last_login_at, created_at, updated_at"#,
+        )
+        .bind(user_id)
+        .bind(password_hash)
+        .fetch_one(self.pool)
+        .await
+        .map_err(|e| match e {
+            sqlx::Error::RowNotFound => AppError::NotFound(format!("用户: {}", user_id)),
+            other => Self::map_write_error(other),
+        })
+    }
+
+    fn map_write_error(e: sqlx::Error) -> AppError {
+        if let sqlx::Error::Database(db_err) = &e {
+            if db_err.code().as_deref() == Some("23505") {
+                return AppError::ValidationError("手机号或邮箱已被使用".into());
+            }
+        }
+        AppError::DatabaseError(e)
     }
 }

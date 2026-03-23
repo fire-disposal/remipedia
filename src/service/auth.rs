@@ -163,6 +163,10 @@ impl<'a> AuthService<'a> {
         user_id: &Uuid,
         req: ChangePasswordRequest,
     ) -> AppResult<()> {
+        if req.old_password == req.new_password {
+            return Err(AppError::ValidationError("新密码不能与旧密码相同".into()));
+        }
+
         let user = self.user_repo.find_by_id(user_id).await?;
 
         // 验证旧密码

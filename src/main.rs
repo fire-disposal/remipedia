@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use argon2::{
-    password_hash::{rand_core::OsRng, SaltString, PasswordHasher},
+    password_hash::{rand_core::OsRng, PasswordHasher, SaltString},
     Argon2,
 };
 use log::{error, info, warn};
@@ -16,6 +16,8 @@ use remipedia::api::swagger_ui;
 use remipedia::config::Settings;
 use remipedia::ingest::{MqttIngest, TcpServer};
 use remipedia::repository::UserRepository;
+
+static MIGRATOR: sqlx::migrate::Migrator = sqlx::migrate!();
 
 /// CORS Fairing - 尽可能宽松的配置
 pub struct Cors;
@@ -45,10 +47,7 @@ impl Fairing for Cors {
 
         // 动态返回请求的 Access-Control-Request-Headers，或允许所有
         if let Some(request_headers) = request.headers().get_one("Access-Control-Request-Headers") {
-            response.set_header(Header::new(
-                "Access-Control-Allow-Headers",
-                request_headers,
-            ));
+            response.set_header(Header::new("Access-Control-Allow-Headers", request_headers));
         } else {
             response.set_header(Header::new("Access-Control-Allow-Headers", "*"));
         }
@@ -97,18 +96,42 @@ async fn init_admin(pool: &PgPool) -> anyhow::Result<()> {
     // 哈希密码
     let password_hash = hash_password(&admin_password)?;
 
-    // 创建管理员
-    let admin = user_repo.create_admin(&admin_username, &password_hash).await?;
+    // 优先复用同名账号，避免唯一键冲突导致启动失败
+    let admin = if let Some(existing_user) = user_repo.find_by_username(&admin_username).await? {
+        if existing_user.role == "admin" {
+            info!("✅ 检测到同名管理员账户，跳过创建");
+            existing_user
+        } else {
+            warn!("⚠️  发现同名非管理员账户，将自动提升为管理员");
+            user_repo
+                .promote_to_admin(&existing_user.id, &password_hash)
+                .await?
+        }
+    } else {
+        user_repo
+            .create_admin(&admin_username, &password_hash)
+            .await?
+    };
 
     info!("🎉 初始管理员账户创建成功!");
     info!("   📧 用户名: {}", admin.username);
-    
+
     // 安全提示
     if std::env::var("ADMIN_PASSWORD").is_err() {
         warn!("⚠️  使用了默认密码 'admin123'，请立即修改密码！");
         warn!("   设置环境变量 ADMIN_PASSWORD 来使用自定义密码");
     }
 
+    Ok(())
+}
+
+/// 自动执行数据库迁移
+async fn run_migrations(pool: &PgPool) -> anyhow::Result<()> {
+    MIGRATOR
+        .run(pool)
+        .await
+        .map_err(|e| anyhow::anyhow!("数据库迁移失败: {}", e))?;
+    info!("🗃️ 数据库迁移完成");
     Ok(())
 }
 
@@ -145,6 +168,9 @@ async fn main() -> anyhow::Result<()> {
         .map_err(|e| anyhow::anyhow!("数据库连接失败: {}", e))?;
 
     info!("🔌 数据库连接池创建成功");
+
+    // 自动执行数据库迁移，确保与当前代码兼容
+    run_migrations(&pool).await?;
 
     // 初始化管理员账户
     init_admin(&pool).await?;

@@ -62,10 +62,27 @@ impl<'a> UserService<'a> {
     }
 
     /// 更新用户
-    pub async fn update(&self, id: &Uuid, _req: UpdateUserRequest) -> AppResult<UserResponse> {
-        let user = self.user_repo.find_by_id(id).await?;
+    pub async fn update(&self, id: &Uuid, req: UpdateUserRequest) -> AppResult<UserResponse> {
+        if let Some(status) = req.status.as_deref() {
+            let is_valid = matches!(status, "active" | "inactive" | "locked");
+            if !is_valid {
+                return Err(AppError::ValidationError("无效的状态值".into()));
+            }
+        }
 
-        // 更新用户信息（需要扩展 repository）
+        let user = self
+            .user_repo
+            .update_profile(
+                id,
+                req.phone.as_deref(),
+                req.email.as_deref(),
+                req.avatar_url.as_deref(),
+                req.status.as_deref(),
+            )
+            .await?;
+
+        info!("用户更新成功: user_id={}", user.id);
+
         Ok(user.into())
     }
 

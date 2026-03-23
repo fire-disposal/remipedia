@@ -5,7 +5,7 @@ use sqlx::PgPool;
 use utoipa::OpenApi;
 use uuid::Uuid;
 
-use crate::api::guards::AuthenticatedUser;
+use crate::api::guards::AdminUser;
 use crate::dto::request::{CreateUserRequest, UpdateUserRequest, UserQuery};
 use crate::dto::response::UserListResponse;
 use crate::dto::response::UserResponse;
@@ -30,7 +30,7 @@ use crate::service::UserService;
 #[post("/users", data = "<req>")]
 pub async fn create_user(
     pool: &State<PgPool>,
-    _user: AuthenticatedUser,
+    _admin: AdminUser,
     req: Json<CreateUserRequest>,
 ) -> AppResult<Json<UserResponse>> {
     let service = UserService::new(pool);
@@ -57,7 +57,7 @@ pub async fn create_user(
 #[get("/users/<id>")]
 pub async fn get_user(
     pool: &State<PgPool>,
-    _user: AuthenticatedUser,
+    _admin: AdminUser,
     id: &str,
 ) -> AppResult<Json<UserResponse>> {
     let id = Uuid::parse_str(id).map_err(|_| AppError::ValidationError("无效的用户 ID".into()))?;
@@ -86,7 +86,7 @@ pub async fn get_user(
 #[put("/users/<id>", data = "<req>")]
 pub async fn update_user(
     pool: &State<PgPool>,
-    _user: AuthenticatedUser,
+    _admin: AdminUser,
     id: &str,
     req: Json<UpdateUserRequest>,
 ) -> AppResult<Json<UserResponse>> {
@@ -115,10 +115,13 @@ pub async fn update_user(
 #[delete("/users/<id>")]
 pub async fn delete_user(
     pool: &State<PgPool>,
-    _user: AuthenticatedUser,
+    admin: AdminUser,
     id: &str,
 ) -> AppResult<Json<serde_json::Value>> {
     let id = Uuid::parse_str(id).map_err(|_| AppError::ValidationError("无效的用户 ID".into()))?;
+    if admin.0.id == id {
+        return Err(AppError::ValidationError("不允许删除当前管理员账号".into()));
+    }
     let service = UserService::new(pool);
     service.delete(&id).await?;
     Ok(Json(serde_json::json!({ "success": true })))
@@ -145,7 +148,7 @@ pub async fn delete_user(
 #[get("/users?<role>&<status>&<page>&<page_size>")]
 pub async fn list_users(
     pool: &State<PgPool>,
-    _user: AuthenticatedUser,
+    _admin: AdminUser,
     role: Option<String>,
     status: Option<String>,
     page: Option<u32>,

@@ -18,6 +18,16 @@ use crate::dto::response::{LoginResponse, RefreshTokenResponse, UserInfo};
 use crate::errors::{AppError, AppResult};
 use crate::repository::{RefreshTokenRepository, UserRepository};
 
+const JWT_ISSUER: &str = "remipedia";
+const JWT_AUDIENCE: &str = "remipedia-api";
+
+fn jwt_validation() -> Validation {
+    let mut validation = Validation::new(Algorithm::HS256);
+    validation.set_issuer(&[JWT_ISSUER]);
+    validation.set_audience(&[JWT_AUDIENCE]);
+    validation
+}
+
 /// JWT 验证器（仅用于验证 token，不需要数据库连接）
 pub struct JwtVerifier<'a> {
     jwt_config: &'a JwtConfig,
@@ -33,7 +43,7 @@ impl<'a> JwtVerifier<'a> {
         let token_data = decode::<Claims>(
             token,
             &DecodingKey::from_secret(self.jwt_config.secret.as_bytes()),
-            &Validation::new(Algorithm::HS256),
+            &jwt_validation(),
         )
         .map_err(|_| AppError::Unauthorized("无效的访问令牌".into()))?;
 
@@ -115,6 +125,12 @@ impl<'a> AuthService<'a> {
     pub async fn refresh_token(&self, req: RefreshTokenRequest) -> AppResult<RefreshTokenResponse> {
         // 验证 refresh token
         let claims = self.verify_refresh_token(&req.refresh_token)?;
+        let token_hash = Self::hash_token(&req.refresh_token);
+
+        // 校验 refresh token 是否存在且未撤销
+        if !self.refresh_token_repo.is_valid(&token_hash).await? {
+            return Err(AppError::Unauthorized("无效的刷新令牌".into()));
+        }
 
         // 获取用户信息
         let user = self.user_repo.find_by_id(&claims.user_id()?).await?;
@@ -125,7 +141,6 @@ impl<'a> AuthService<'a> {
         }
 
         // 撤销旧的 refresh token
-        let token_hash = Self::hash_token(&req.refresh_token);
         self.refresh_token_repo.revoke(&token_hash).await?;
 
         // 生成新的令牌
@@ -197,7 +212,7 @@ impl<'a> AuthService<'a> {
         role: &str,
     ) -> AppResult<(String, chrono::DateTime<Utc>)> {
         let expires_at = Utc::now() + Duration::hours(self.jwt_config.expiration_hours as i64);
-        let claims = Claims::new_access(user_id, role, expires_at, "remipedia");
+        let claims = Claims::new_access(user_id, role, expires_at, JWT_ISSUER);
 
         let token = encode(
             &Header::default(),
@@ -213,7 +228,7 @@ impl<'a> AuthService<'a> {
     async fn generate_refresh_token(&self, user_id: &Uuid) -> AppResult<String> {
         let expires_at =
             Utc::now() + Duration::days(self.jwt_config.refresh_expiration_days as i64);
-        let claims = Claims::new_refresh(user_id, expires_at, "remipedia");
+        let claims = Claims::new_refresh(user_id, expires_at, JWT_ISSUER);
 
         let token = encode(
             &Header::default(),
@@ -240,7 +255,7 @@ impl<'a> AuthService<'a> {
         let token_data = decode::<Claims>(
             token,
             &DecodingKey::from_secret(self.jwt_config.secret.as_bytes()),
-            &Validation::new(Algorithm::HS256),
+            &jwt_validation(),
         )
         .map_err(|_| AppError::Unauthorized("无效的刷新令牌".into()))?;
 

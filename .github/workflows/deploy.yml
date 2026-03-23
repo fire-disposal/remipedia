@@ -78,3 +78,46 @@ jobs:
           EOF
 
           echo "✅ 部署完成: http://${{ secrets.DEPLOY_HOST }}:8000"
+
+      # ✅ 健康检查
+      - name: Health check
+        run: |
+          echo "⏳ 等待服务启动..."
+          sleep 10
+          
+          # 尝试多次检查
+          for i in {1..5}; do
+            echo "🔄 健康检查尝试 $i/5..."
+            
+            # 通过 SSH 在服务器上执行健康检查
+            HEALTH_STATUS=$(ssh ${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }} "
+              # 检查容器是否运行
+              if ! docker ps --filter 'name=remipedia' --filter 'status=running' --format '{{.Names}}' | grep -q .; then
+                echo 'CONTAINER_NOT_RUNNING'
+                exit 1
+              fi
+              
+              # 检查 HTTP 端点（根据你的实际端口修改）
+              if curl -sf http://127.0.0.1:8000/health > /dev/null 2>&1 || \
+                 curl -sf http://127.0.0.1:8000/ > /dev/null 2>&1; then
+                echo 'HEALTHY'
+              else
+                echo 'UNHEALTHY'
+                exit 1
+              fi
+            ") || true
+            
+            if [ "$HEALTH_STATUS" = "HEALTHY" ]; then
+              echo "✅ 健康检查通过！"
+              exit 0
+            elif [ "$HEALTH_STATUS" = "CONTAINER_NOT_RUNNING" ]; then
+              echo "❌ 容器未运行"
+              exit 1
+            fi
+            
+            echo "⏳ 服务未就绪，5秒后重试..."
+            sleep 5
+          done
+          
+          echo "❌ 健康检查失败，部署可能有问题"
+          exit 1

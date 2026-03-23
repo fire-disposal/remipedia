@@ -7,7 +7,7 @@ services:
     container_name: remipedia-app
     restart: unless-stopped
     ports:
-      - "8000:8000"
+      - "127.0.0.1:18000:8000"
       - "5858:5858"
     environment:
       - APP_DATABASE_URL=postgresql://postgres:postgres@postgres:5432/remipedia

@@ -6,7 +6,7 @@ pub mod health;
 pub mod patient;
 pub mod user;
 
-use rocket::{Route, routes, options};
+use rocket::{options, routes, Route};
 
 /// 处理所有 OPTIONS 预检请求
 #[options("/<_..>")]

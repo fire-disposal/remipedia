@@ -46,8 +46,16 @@ pub struct TcpConfig {
 
 impl Settings {
     pub fn new() -> Result<Self, config::ConfigError> {
-        let config = config::Config::builder()
-            .add_source(config::File::with_name("config/default"))
+        let mut builder = config::Config::builder()
+            .add_source(config::File::with_name("config/default"));
+
+        // 加载本地配置（如果存在）
+        let local_config = std::path::Path::new("config/local.yaml");
+        if local_config.exists() {
+            builder = builder.add_source(config::File::with_name("config/local"));
+        }
+
+        let config = builder
             .add_source(config::Environment::with_prefix("APP").separator("__"))
             .build()?;
 

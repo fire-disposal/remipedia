@@ -59,22 +59,38 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-      # ✅ Deploy（保持你原有逻辑，几乎不动）
+      # ✅ Deploy（隔离部署到独立目录）
       - name: Deploy via remote Docker
         env:
           DOCKER_HOST: ssh://${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }}
         run: |
-          # 同步配置文件
+          # 设置项目专属目录（自动创建）
+          PROJECT_DIR="${{ secrets.DEPLOY_PATH }}/remipedia"
+          
+          # 创建项目目录并同步配置文件
+          ssh ${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }} "mkdir -p $PROJECT_DIR"
+          
           scp docker-compose.yml mosquitto.conf \
-            ${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }}:${{ secrets.DEPLOY_PATH }}/
+            ${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }}:$PROJECT_DIR/
 
-          # 远程执行部署（更稳）
-          ssh ${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }} << 'EOF'
+          # 远程执行部署（在项目目录内）
+          ssh ${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }} << EOF
+          set -e
+          
+          # 登录容器仓库
           echo "${{ secrets.GITHUB_TOKEN }}" | docker login ${{ env.REGISTRY }} -u ${{ github.actor }} --password-stdin
-
-          docker-compose -f ${{ secrets.DEPLOY_PATH }}/docker-compose.yml pull
-          docker-compose -f ${{ secrets.DEPLOY_PATH }}/docker-compose.yml up -d
+          
+          # 进入项目目录执行部署
+          cd $PROJECT_DIR
+          
+          # 拉取并启动（使用项目专属容器名，避免冲突）
+          docker-compose pull
+          docker-compose up -d
+          
+          # 清理旧镜像
           docker image prune -f
+          
+          echo "✅ Remipedia 部署完成"
           EOF
 
           echo "✅ 部署完成: http://${{ secrets.DEPLOY_HOST }}:8000"

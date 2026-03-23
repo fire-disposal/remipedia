@@ -143,12 +143,28 @@ impl<'a> PatientRepository<'a> {
         .map_err(AppError::DatabaseError)
     }
 
-    pub async fn insert_profile(&self, profile: &NewPatientProfile) -> AppResult<PatientProfile> {
+    pub async fn upsert_profile(&self, profile: &NewPatientProfile) -> AppResult<PatientProfile> {
         sqlx::query_as::<_, PatientProfile>(
-            r#"INSERT INTO patient_profile (patient_id, date_of_birth, gender, blood_type, contact_phone,
-                      address, emergency_contact, emergency_phone, medical_id, allergies, medical_history,
-                      notes, tags, metadata)
+            r#"INSERT INTO patient_profile (
+                    patient_id, date_of_birth, gender, blood_type, contact_phone,
+                    address, emergency_contact, emergency_phone, medical_id, allergies, medical_history,
+                    notes, tags, metadata
+               )
                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+               ON CONFLICT (patient_id) DO UPDATE
+               SET date_of_birth = EXCLUDED.date_of_birth,
+                   gender = EXCLUDED.gender,
+                   blood_type = EXCLUDED.blood_type,
+                   contact_phone = EXCLUDED.contact_phone,
+                   address = EXCLUDED.address,
+                   emergency_contact = EXCLUDED.emergency_contact,
+                   emergency_phone = EXCLUDED.emergency_phone,
+                   medical_id = EXCLUDED.medical_id,
+                   allergies = EXCLUDED.allergies,
+                   medical_history = EXCLUDED.medical_history,
+                   notes = EXCLUDED.notes,
+                   tags = EXCLUDED.tags,
+                   metadata = EXCLUDED.metadata
                RETURNING patient_id, date_of_birth, gender, blood_type, contact_phone, address,
                       emergency_contact, emergency_phone, medical_id, allergies, medical_history,
                       notes, tags, metadata, created_at, updated_at"#,

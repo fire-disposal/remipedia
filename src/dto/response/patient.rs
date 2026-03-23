@@ -36,6 +36,8 @@ pub struct PatientDetailResponse {
 /// 患者档案响应
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct PatientProfileResponse {
+    /// 患者ID
+    pub patient_id: Uuid,
     /// 出生日期
     pub date_of_birth: Option<chrono::NaiveDate>,
     /// 性别
@@ -60,6 +62,12 @@ pub struct PatientProfileResponse {
     pub notes: Option<String>,
     /// 标签
     pub tags: serde_json::Value,
+    /// 元数据
+    pub metadata: serde_json::Value,
+    /// 创建时间
+    pub created_at: DateTime<Utc>,
+    /// 更新时间
+    pub updated_at: DateTime<Utc>,
 }
 
 /// 患者列表响应

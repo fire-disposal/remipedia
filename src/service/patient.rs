@@ -138,13 +138,10 @@ impl<'a> PatientService<'a> {
         // 确保患者存在
         self.patient_repo.find_by_id(patient_id).await?;
 
-        // 删除现有档案
-        let _ = self.patient_repo.delete_profile(patient_id).await;
-
-        // 创建新档案
+        // 原子 upsert，避免先删后插导致的数据窗口和时间戳丢失
         let profile = self
             .patient_repo
-            .insert_profile(&NewPatientProfile {
+            .upsert_profile(&NewPatientProfile {
                 patient_id: *patient_id,
                 date_of_birth: req.date_of_birth,
                 gender: req.gender,
@@ -162,7 +159,7 @@ impl<'a> PatientService<'a> {
             })
             .await?;
 
-        info!("患者档案创建成功: patient_id={}", patient_id);
+        info!("患者档案写入成功: patient_id={}", patient_id);
 
         Ok(profile.into())
     }
@@ -172,8 +169,19 @@ impl<'a> PatientService<'a> {
         &self,
         patient_id: &Uuid,
     ) -> AppResult<Option<PatientProfileResponse>> {
+        // 确保患者存在，避免把不存在患者和“无档案”混为一谈
+        self.patient_repo.find_by_id(patient_id).await?;
+
         let profile = self.patient_repo.find_profile(patient_id).await?;
         Ok(profile.map(|p| p.into()))
+    }
+
+    pub async fn delete_profile(&self, patient_id: &Uuid) -> AppResult<()> {
+        // 确保患者存在
+        self.patient_repo.find_by_id(patient_id).await?;
+        self.patient_repo.delete_profile(patient_id).await?;
+        info!("患者档案删除成功: patient_id={}", patient_id);
+        Ok(())
     }
 }
 
@@ -192,6 +200,7 @@ impl From<crate::core::entity::Patient> for PatientResponse {
 impl From<crate::core::entity::PatientProfile> for PatientProfileResponse {
     fn from(profile: crate::core::entity::PatientProfile) -> Self {
         Self {
+            patient_id: profile.patient_id,
             date_of_birth: profile.date_of_birth,
             gender: profile.gender,
             blood_type: profile.blood_type,
@@ -204,6 +213,9 @@ impl From<crate::core::entity::PatientProfile> for PatientProfileResponse {
             medical_history: profile.medical_history,
             notes: profile.notes,
             tags: profile.tags,
+            metadata: profile.metadata,
+            created_at: profile.created_at,
+            updated_at: profile.updated_at,
         }
     }
 }

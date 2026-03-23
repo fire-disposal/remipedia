@@ -6,8 +6,12 @@ use utoipa::OpenApi;
 use uuid::Uuid;
 
 use crate::api::guards::AuthenticatedUser;
-use crate::dto::request::{CreatePatientRequest, PatientQuery, UpdatePatientRequest};
-use crate::dto::response::{PatientDetailResponse, PatientListResponse, PatientResponse};
+use crate::dto::request::{
+    CreatePatientProfileRequest, CreatePatientRequest, PatientQuery, UpdatePatientRequest,
+};
+use crate::dto::response::{
+    PatientDetailResponse, PatientListResponse, PatientProfileResponse, PatientResponse,
+};
 use crate::errors::{AppError, AppResult};
 use crate::service::PatientService;
 
@@ -122,6 +126,95 @@ pub async fn update_patient(
     Ok(Json(response))
 }
 
+/// 获取患者档案
+#[utoipa::path(
+    get,
+    path = "/patients/{id}/profile",
+    tag = "patients",
+    security(
+        ("bearer_auth" = [])
+    ),
+    params(
+        ("id" = String, Path, description = "患者ID")
+    ),
+    responses(
+        (status = 200, description = "获取成功", body = Option<PatientProfileResponse>),
+        (status = 404, description = "患者不存在"),
+    )
+)]
+#[get("/patients/<id>/profile")]
+pub async fn get_patient_profile(
+    pool: &State<PgPool>,
+    _user: AuthenticatedUser,
+    id: &str,
+) -> AppResult<Json<serde_json::Value>> {
+    let id = Uuid::parse_str(id).map_err(|_| AppError::ValidationError("无效的患者 ID".into()))?;
+    let service = PatientService::new(pool);
+    let profile = service.get_profile(&id).await?;
+    Ok(Json(serde_json::json!({
+        "success": true,
+        "data": profile
+    })))
+}
+
+/// 创建或更新患者档案
+#[utoipa::path(
+    put,
+    path = "/patients/{id}/profile",
+    tag = "patients",
+    security(
+        ("bearer_auth" = [])
+    ),
+    params(
+        ("id" = String, Path, description = "患者ID")
+    ),
+    request_body = CreatePatientProfileRequest,
+    responses(
+        (status = 200, description = "写入成功", body = PatientProfileResponse),
+        (status = 404, description = "患者不存在"),
+    )
+)]
+#[put("/patients/<id>/profile", data = "<req>")]
+pub async fn upsert_patient_profile(
+    pool: &State<PgPool>,
+    _user: AuthenticatedUser,
+    id: &str,
+    req: Json<CreatePatientProfileRequest>,
+) -> AppResult<Json<PatientProfileResponse>> {
+    let id = Uuid::parse_str(id).map_err(|_| AppError::ValidationError("无效的患者 ID".into()))?;
+    let service = PatientService::new(pool);
+    let profile = service.upsert_profile(&id, req.into_inner()).await?;
+    Ok(Json(profile))
+}
+
+/// 删除患者档案
+#[utoipa::path(
+    delete,
+    path = "/patients/{id}/profile",
+    tag = "patients",
+    security(
+        ("bearer_auth" = [])
+    ),
+    params(
+        ("id" = String, Path, description = "患者ID")
+    ),
+    responses(
+        (status = 200, description = "删除成功"),
+        (status = 404, description = "患者不存在"),
+    )
+)]
+#[delete("/patients/<id>/profile")]
+pub async fn delete_patient_profile(
+    pool: &State<PgPool>,
+    _user: AuthenticatedUser,
+    id: &str,
+) -> AppResult<Json<serde_json::Value>> {
+    let id = Uuid::parse_str(id).map_err(|_| AppError::ValidationError("无效的患者 ID".into()))?;
+    let service = PatientService::new(pool);
+    service.delete_profile(&id).await?;
+    Ok(Json(serde_json::json!({ "success": true })))
+}
+
 /// 删除患者
 #[utoipa::path(
     delete,
@@ -194,6 +287,9 @@ pub fn routes() -> Vec<rocket::Route> {
         get_patient,
         get_patient_detail,
         update_patient,
+        get_patient_profile,
+        upsert_patient_profile,
+        delete_patient_profile,
         delete_patient,
         list_patients
     ]
@@ -205,6 +301,9 @@ pub fn routes() -> Vec<rocket::Route> {
     get_patient,
     get_patient_detail,
     update_patient,
+    get_patient_profile,
+    upsert_patient_profile,
+    delete_patient_profile,
     delete_patient,
     list_patients
 ))]

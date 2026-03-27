@@ -18,6 +18,7 @@ use remipedia::ingest::DeviceManager;
 use remipedia::ingest::AdapterRegistry;
 use remipedia::ingest::transport::mqtt::MqttTransport;
 use remipedia::ingest::transport::tcp::TcpTransport;
+use remipedia::ingest::transport::websocket::WebSocketTransport;
 use remipedia::ingest::transport::{TransportContext, TransportManager};
 use remipedia::repository::UserRepository;
 
@@ -218,6 +219,13 @@ async fn main() -> anyhow::Result<()> {
                 mqtt_cfg.topic_prefix.clone(),
             ));
             manager_tm.register(mqtt_tr);
+        }
+
+        // websocket transport (if enabled)
+        if settings.websocket.enabled {
+            let ws_bind = format!("0.0.0.0:{}", settings.websocket.port);
+            let ws_tr = Arc::new(WebSocketTransport::new(ws_bind));
+            manager_tm.register(ws_tr);
         }
 
         // start in background

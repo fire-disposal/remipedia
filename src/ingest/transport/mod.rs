@@ -4,6 +4,7 @@
 
 pub mod mqtt;
 pub mod tcp;
+pub mod websocket;
 
 use anyhow::Result;
 use async_trait::async_trait;

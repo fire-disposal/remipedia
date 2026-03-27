@@ -18,6 +18,10 @@ tcp:
   port: 5858
   enabled: true
 
+websocket:
+  port: 5859
+  enabled: true
+
 jwt:
   secret: "your-secret-key-change-in-production"
   expiration_hours: 2

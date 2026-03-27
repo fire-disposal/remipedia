@@ -6,6 +6,7 @@ pub struct Settings {
     pub server: ServerConfig,
     pub mqtt: MqttConfig,
     pub tcp: TcpConfig,
+    pub websocket: WebSocketConfig,
     pub jwt: JwtConfig,
 }
 
@@ -40,6 +41,12 @@ pub struct JwtConfig {
 
 #[derive(Debug, Deserialize, Clone)]
 pub struct TcpConfig {
+    pub port: u16,
+    pub enabled: bool,
+}
+
+#[derive(Debug, Deserialize, Clone)]
+pub struct WebSocketConfig {
     pub port: u16,
     pub enabled: bool,
 }

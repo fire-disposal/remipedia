@@ -2,6 +2,9 @@ use anyhow::Result;
 use async_trait::async_trait;
 use std::sync::Arc;
 
+pub mod mqtt;
+pub mod tcp;
+
 /// 统一 Transport trait：负责接收外部连接并把原始帧交给适配器/管道
 #[async_trait]
 pub trait Transport: Send + Sync {

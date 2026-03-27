@@ -58,3 +58,22 @@
 - 统一注入 `PgPool` 并移除 transport 内部的隐式 DB 连接。
 - 增加更多集成测试以覆盖 AdapterManager 全路径。
 
+---
+
+## 2026-03：adapter / transport 协作优化（最新）
+
+本轮已经把「设备发现 + 分发」主路径统一收敛到了 `AdapterManager`，让新增 adapter 与新增 transport 的对接更丝滑：
+
+- `AdapterManager::new(pool, registry)` 改为显式接收共享 `AdapterRegistry`，避免运行时重复构建注册表。
+- 新增 `AdapterManager::dispatch_by_serial(...)`：
+  - 统一做 `device_type` 规范化（`DeviceType::from_str`）；
+  - 统一校验是否存在对应 adapter worker；
+  - 统一执行设备自动注册、绑定查询、`InboundMessage` 组装与 dispatch。
+- `MqttTransport` 不再自行 `connect_lazy` 建 DB 连接；改为直接调用 `dispatch_by_serial`。
+- `TcpTransport` 不再自行处理设备自动注册/绑定逻辑；只负责网络收包和必要的 serial 提取后调用 `dispatch_by_serial`。
+- 启动流程（`main.rs`）中，`AdapterRegistry` 与 `AdapterManager` 使用同一个共享实例注入到 `TransportContext`，保持单一事实来源（single source of truth）。
+
+### 结果
+- Transport 层职责更纯粹：网络协议 + 原始帧提取。
+- Adapter 层职责更清晰：解析与校验。
+- 新增 transport 或 adapter 时，接线点统一，重复代码明显减少，协作成本更低。

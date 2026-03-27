@@ -4,7 +4,7 @@
 
 mod adapter;
 mod event_engine;
-mod transport;
+pub mod transport;
 mod decoder;
 mod types;
 

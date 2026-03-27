@@ -14,8 +14,10 @@ use chrono::{DateTime, Utc};
 use tokio::sync::mpsc::{self, Sender};
 
 use crate::core::entity::IngestData;
+use crate::core::value_object::DeviceType;
 use crate::errors::AppError;
-use crate::ingest::adapters::{AdapterRegistry, DeviceAdapter, MessagePayload};
+use crate::ingest::adapters::AdapterRegistry;
+use crate::service::{BindingService, DeviceService};
 use crate::service::DataService;
 
 /// 入站消息（从 MQTT/TCP 分发到适配器 worker）
@@ -31,12 +33,12 @@ pub struct InboundMessage {
 /// 简单的适配器管理器：为每种设备类型启动一个 worker，接收原始消息并执行解析/入库。
 pub struct AdapterManager {
     senders: HashMap<String, Sender<InboundMessage>>,
+    pool: Arc<sqlx::PgPool>,
 }
 
 impl AdapterManager {
     /// 创建并启动管理器（为注册表中的每个适配器启动 worker）。
-    pub fn new(pool: Arc<sqlx::PgPool>) -> Arc<Self> {
-        let registry = AdapterRegistry::new();
+    pub fn new(pool: Arc<sqlx::PgPool>, registry: Arc<AdapterRegistry>) -> Arc<Self> {
         let mut senders: HashMap<String, Sender<InboundMessage>> = HashMap::new();
 
         for (device_type, adapter) in registry.iter().into_iter() {
@@ -119,7 +121,49 @@ impl AdapterManager {
             senders.insert(dt, tx);
         }
 
-        Arc::new(Self { senders })
+        Arc::new(Self { senders, pool })
+    }
+
+    /// 通过 serial_number 自动注册/获取设备并分发原始消息。
+    ///
+    /// 适用于 Transport 侧：统一处理设备发现、绑定查询与 device_type 检查，
+    /// 让不同 transport 与 adapters 使用同一条入站路径。
+    pub async fn dispatch_by_serial(
+        &self,
+        serial_number: &str,
+        device_type: &str,
+        raw_payload: Vec<u8>,
+        source: &str,
+    ) -> Result<(), AppError> {
+        let normalized_type = DeviceType::from_str(device_type)
+            .map(|dt| dt.as_str().to_string())
+            .ok_or_else(|| AppError::ValidationError(format!("未知设备类型: {}", device_type)))?;
+
+        if !self.senders.contains_key(&normalized_type) {
+            return Err(AppError::ValidationError(format!(
+                "无对应适配器: {}",
+                normalized_type
+            )));
+        }
+
+        let device_service = DeviceService::new(self.pool.as_ref());
+        let binding_service = BindingService::new(self.pool.as_ref());
+        let device = device_service
+            .auto_register_or_get(serial_number, &normalized_type)
+            .await?;
+        let subject_id = binding_service.get_current_binding_subject(&device.id).await?;
+
+        let inbound = InboundMessage {
+            time: Utc::now(),
+            device_id: device.id,
+            subject_id,
+            device_type: device.device_type,
+            raw_payload,
+            source: source.to_string(),
+        };
+
+        let device_type = inbound.device_type.clone();
+        self.dispatch(&device_type, inbound).await
     }
 
     /// Dispatch 一条消息到对应设备类型的 worker。

@@ -4,7 +4,7 @@ use argon2::{
     password_hash::{rand_core::OsRng, PasswordHasher, SaltString},
     Argon2,
 };
-use log::{error, info, warn};
+use log::{info, warn};
 use rocket::fairing::{Fairing, Info, Kind};
 use rocket::http::Header;
 use rocket::{Build, Rocket};
@@ -184,9 +184,9 @@ async fn main() -> anyhow::Result<()> {
     // 启动 TransportManager 并注册可用 transports
     {
         let mut manager_tm = TransportManager::new();
-        let registry = AdapterRegistry::new();
-        let adapter_manager = AdapterManager::new(Arc::new(pool.clone()));
-        let ctx = TransportContext { adapters: std::sync::Arc::new(registry), manager: adapter_manager.clone() };
+        let registry = std::sync::Arc::new(AdapterRegistry::new());
+        let adapter_manager = AdapterManager::new(Arc::new(pool.clone()), registry.clone());
+        let ctx = TransportContext { adapters: registry, manager: adapter_manager.clone() };
 
         // mattress transport (legacy port)
         let adapter = std::sync::Arc::new(MattressAdapter::new());
@@ -196,7 +196,7 @@ async fn main() -> anyhow::Result<()> {
         // tcp transport (if enabled)
         if settings.tcp.enabled {
             let tcp_bind = format!("0.0.0.0:{}", settings.tcp.port);
-            let tcp_tr = std::sync::Arc::new(TcpTransport::new(tcp_bind, Arc::new(pool.clone())));
+            let tcp_tr = std::sync::Arc::new(TcpTransport::new(tcp_bind));
             manager_tm.register(tcp_tr);
         }
 

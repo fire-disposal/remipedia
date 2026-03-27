@@ -2,9 +2,7 @@ use anyhow::Result;
 use rumqttc::{AsyncClient, Event, Incoming, MqttOptions};
 use std::sync::Arc;
 
-use crate::errors::AppError;
 use crate::ingest::AdapterManager;
-use crate::service::{BindingService, DeviceService};
 use crate::ingest::transport::{Transport, TransportContext};
 
 pub struct MqttTransport {
@@ -26,9 +24,8 @@ impl Transport for MqttTransport {
         let mut options = MqttOptions::new(&self.client_id, &self.broker, self.port);
         options.set_keep_alive(std::time::Duration::from_secs(30));
 
-        let (client, mut eventloop) = AsyncClient::new(options, 10);
+        let (_client, mut eventloop) = AsyncClient::new(options, 10);
         let topic_prefix = self.topic_prefix.clone();
-        let pool = None::<Arc<sqlx::PgPool>>; // pool not stored here; we'll use adapter manager to route
 
         tokio::spawn(async move {
             log::info!("mqtt transport event loop start");
@@ -76,30 +73,10 @@ async fn handle_message(
         msg["device_type"].as_str().ok_or_else(|| anyhow::anyhow!("missing device_type"))?.to_string()
     };
 
-    // auto-register device using DeviceService - need pool but AdapterManager holds pool in workers; we still register here via DB access
-    // For simplicity, assume AdapterManager was created with pool accessible elsewhere; to avoid direct DB here, attempt to dispatch raw payload with dummy device lookup omitted.
-    // We'll attempt to find device by serial via DeviceService if possible
-    let pool = sqlx::PgPool::connect_lazy(&std::env::var("DATABASE_URL").unwrap_or_default()).ok();
-
-    if let Some(pool) = pool {
-        let device_service = DeviceService::new(&pool);
-        let device = device_service.auto_register_or_get(serial_number, &device_type).await.map_err(|e| anyhow::anyhow!(e))?;
-        let binding_service = BindingService::new(&pool);
-        let subject_id = binding_service.get_current_binding_subject(&device.id).await.map_err(|e| anyhow::anyhow!(e))?;
-
-        let inbound = crate::ingest::adapter_manager::InboundMessage {
-            time: chrono::Utc::now(),
-            device_id: device.id,
-            subject_id,
-            device_type: device.device_type.clone(),
-            raw_payload: payload.to_vec(),
-            source: "mqtt".to_string(),
-        };
-
-        manager.dispatch(&inbound.device_type, inbound).await.map_err(|e| anyhow::anyhow!(e))?;
-    } else {
-        log::warn!("mqtt transport: cannot auto-register device: no pool configured");
-    }
+    manager
+        .dispatch_by_serial(serial_number, &device_type, payload.to_vec(), "mqtt")
+        .await
+        .map_err(|e| anyhow::anyhow!(e))?;
 
     Ok(())
 }

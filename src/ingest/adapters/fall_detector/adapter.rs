@@ -1,9 +1,8 @@
 //! 跌倒检测器适配器
 
 use crate::errors::{AppError, AppResult};
-use crate::ingest::adapters::DeviceAdapter;
+use crate::ingest::adapters::adapter_trait::{AdapterOutput, DeviceAdapter, MessagePayload};
 use chrono::Utc;
-use serde_json::json;
 
 use super::types::{FallAlertEvent, FallDetectorData, FallDetectorEventType, FallDetectorMessage};
 
@@ -75,36 +74,36 @@ impl FallDetectorAdapter {
 }
 
 impl DeviceAdapter for FallDetectorAdapter {
-    fn parse_payload(&self, raw: &[u8]) -> AppResult<serde_json::Value> {
+    fn parse(&self, raw: &[u8]) -> AppResult<AdapterOutput> {
         let msg = self.parse_message(raw)?;
         let data = self.to_data(msg)?;
 
-        Ok(json!({
-            "event_type": data.event_type.as_str(),
+        // 构造扁平消息
+        let details = serde_json::json!({
             "confidence": data.confidence,
-            "timestamp": data.timestamp.to_rfc3339(),
-        }))
+        });
+
+        let msg = MessagePayload {
+            time: data.timestamp,
+            data_type: self.data_type().to_string(),
+            message_type: Some(data.event_type.as_str().to_string()),
+            severity: None,
+            payload: details,
+        };
+
+        Ok(AdapterOutput::Messages(vec![msg]))
     }
 
-    fn validate(&self, payload: &serde_json::Value) -> AppResult<()> {
-        let event_type_str = payload["event_type"]
-            .as_str()
-            .ok_or_else(|| AppError::ValidationError("缺少event_type字段".into()))?;
-
-        let event_type = FallDetectorEventType::from_str(event_type_str)
-            .ok_or_else(|| AppError::ValidationError(format!("未知事件类型: {}", event_type_str)))?;
-
-        let confidence = payload["confidence"]
-            .as_f64()
-            .ok_or_else(|| AppError::ValidationError("缺少confidence字段".into()))?;
-
-        if !(0.0..=1.0).contains(&confidence) {
-            return Err(AppError::ValidationError("置信度必须在0.0-1.0之间".into()));
-        }
-
-        // 跌倒事件需要较高置信度
-        if event_type == FallDetectorEventType::PersonFall && confidence < 0.5 {
-            return Err(AppError::ValidationError("跌倒事件置信度不足(需>=0.5)".into()));
+    fn validate(&self, output: &AdapterOutput) -> AppResult<()> {
+        // 对消息字段进行基本校验
+        match output {
+            AdapterOutput::Messages(msgs) => {
+                for m in msgs {
+                    if m.payload.get("event_type").is_none() && m.message_type.is_none() {
+                        return Err(AppError::ValidationError("缺少 event_type 字段".into()));
+                    }
+                }
+            }
         }
 
         Ok(())

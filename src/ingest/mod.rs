@@ -1,7 +1,6 @@
 pub mod adapters;
-pub mod mqtt_client;
-pub mod tcp_server;
+pub mod adapter_manager;
 
 pub use adapters::*;
-pub use mqtt_client::*;
-pub use tcp_server::*;
+pub use adapter_manager::*;
+pub mod transport; // Expose ingest transport module for unified transport management

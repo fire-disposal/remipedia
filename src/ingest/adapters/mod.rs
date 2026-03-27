@@ -1,10 +1,14 @@
 mod adapter_trait;
 pub mod fall_detector; // 跌倒检测器模块
-pub mod heart_rate; // 心率监测器模块
 pub mod mattress;
 pub mod spo2; // 血氧传感器模块 // 床垫适配器模块
 
-pub use adapter_trait::DeviceAdapter;
+
+/// 适配器接口导出：所有适配器应实现 `DeviceAdapter`，并返回统一的 `AdapterOutput`。
+/// 约束：
+/// - `parse(raw)` 应为同步/快速路径或在调用端使用 `spawn_blocking`。
+/// - `AdapterOutput::Messages` 的 `payload` 用于入库，字段命名应与 `DataService` 入库约定一致。
+pub use adapter_trait::{DeviceAdapter, AdapterOutput, MessagePayload};
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -22,10 +26,6 @@ impl AdapterRegistry {
 
         // 注册所有适配器 - 使用新的模块化架构
         adapters.insert(
-            DeviceType::HeartRateMonitor,
-            Arc::new(heart_rate::HeartRateAdapter::new()),
-        );
-        adapters.insert(
             DeviceType::FallDetector,
             Arc::new(fall_detector::FallDetectorAdapter::new()),
         );
@@ -36,6 +36,14 @@ impl AdapterRegistry {
         );
 
         Self { adapters }
+    }
+
+    /// 返回当前注册表的条目拷贝，便于遍历（DeviceType, Adapter）
+    pub fn iter(&self) -> Vec<(DeviceType, Arc<dyn DeviceAdapter>)> {
+        self.adapters
+            .iter()
+            .map(|(k, v)| (k.clone(), v.clone()))
+            .collect()
     }
 
     /// 获取适配器

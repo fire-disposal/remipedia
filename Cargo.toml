@@ -52,6 +52,9 @@ sha2 = "0.10"
 rmp = "0.8"
 rmp-serde = "1.1"
 
+# byte buffer
+bytes = "1"
+
 # CRC 校验
 crc = "3.0"
 

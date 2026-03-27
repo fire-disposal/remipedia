@@ -14,7 +14,13 @@ use sqlx::PgPool;
 use remipedia::api::routes;
 use remipedia::api::swagger_ui;
 use remipedia::config::Settings;
-use remipedia::ingest::{MqttIngest, TcpServer};
+use remipedia::ingest::transport::{TransportManager, TransportContext};
+use remipedia::ingest::AdapterRegistry;
+use remipedia::ingest::AdapterManager;
+use remipedia::ingest::adapters::mattress::transport::MattressTransport;
+use remipedia::ingest::transport::tcp::TcpTransport;
+use remipedia::ingest::transport::mqtt::MqttTransport;
+use remipedia::ingest::adapters::mattress::MattressAdapter;
 use remipedia::repository::UserRepository;
 
 static MIGRATOR: sqlx::migrate::Migrator = sqlx::migrate!();
@@ -175,28 +181,36 @@ async fn main() -> anyhow::Result<()> {
     // 初始化管理员账户
     init_admin(&pool).await?;
 
-    // 启动 MQTT 客户端（如果启用）
-    if settings.mqtt.enabled {
-        let mqtt_pool = Arc::new(pool.clone());
-        let mqtt_config = settings.mqtt.clone();
+    // 启动 TransportManager 并注册可用 transports
+    {
+        let mut manager_tm = TransportManager::new();
+        let registry = AdapterRegistry::new();
+        let adapter_manager = AdapterManager::new(Arc::new(pool.clone()));
+        let ctx = TransportContext { adapters: std::sync::Arc::new(registry), manager: adapter_manager.clone() };
 
-        tokio::spawn(async move {
-            info!("📡 MQTT 客户端启动中...");
-            let mqtt_client = MqttIngest::new(mqtt_pool, &mqtt_config).await;
-            mqtt_client.subscribe().await;
-        });
-    }
+        // mattress transport (legacy port)
+        let adapter = std::sync::Arc::new(MattressAdapter::new());
+        let mt = std::sync::Arc::new(MattressTransport::new("0.0.0.0:5858".to_string(), adapter));
+        manager_tm.register(mt);
 
-    // 启动 TCP 服务器（如果启用）
-    if settings.tcp.enabled {
-        let tcp_pool = Arc::new(pool.clone());
-        let tcp_config = settings.tcp.clone();
+        // tcp transport (if enabled)
+        if settings.tcp.enabled {
+            let tcp_bind = format!("0.0.0.0:{}", settings.tcp.port);
+            let tcp_tr = std::sync::Arc::new(TcpTransport::new(tcp_bind, Arc::new(pool.clone())));
+            manager_tm.register(tcp_tr);
+        }
 
-        tokio::spawn(async move {
-            info!("🔌 TCP 服务器启动中...");
-            let tcp_server = TcpServer::new(tcp_config, tcp_pool);
-            if let Err(e) = tcp_server.start().await {
-                error!("TCP 服务器启动失败: {}", e);
+        // mqtt transport (if enabled)
+        if settings.mqtt.enabled {
+            let mqtt_cfg = settings.mqtt.clone();
+            let mqtt_tr = std::sync::Arc::new(MqttTransport::new(mqtt_cfg.broker.clone(), mqtt_cfg.port, mqtt_cfg.client_id.clone(), mqtt_cfg.topic_prefix.clone()));
+            manager_tm.register(mqtt_tr);
+        }
+
+        // start in background
+        let _ = tokio::spawn(async move {
+            if let Err(e) = manager_tm.start_all(ctx).await {
+                log::error!("transport manager failed: {}", e);
             }
         });
     }

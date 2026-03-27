@@ -73,21 +73,39 @@ impl<'a> DeviceService<'a> {
         let dev_type = DeviceType::from_str(device_type)
             .ok_or_else(|| AppError::ValidationError(format!("未知设备类型: {}", device_type)))?;
 
-        // 自动创建设备
-        let device = self
+        // 自动创建设备，处理并发插入导致的唯一约束冲突（serial_number 唯一）
+        match self
             .device_repo
             .insert(&NewDevice::new(
                 serial_number.to_string(),
                 dev_type.as_str().to_string(),
             ))
-            .await?;
+            .await
+        {
+            Ok(device) => {
+                info!(
+                    "设备自动注册成功: device_id={}, device_type={}",
+                    device.id, device_type
+                );
+                Ok(device)
+            }
+            Err(e) => {
+                // 如果是唯一约束冲突（Postgres code 23505），说明可能是并发创建，尝试重新查询并返回已存在设备
+                match &e {
+                    AppError::DatabaseError(sqlx::Error::Database(db_err)) => {
+                        if db_err.code().map(|c| c == "23505").unwrap_or(false) {
+                            if let Some(device) = self.device_repo.find_by_serial(serial_number).await? {
+                                info!("设备已存在(并发创建): device_id={}", device.id);
+                                return Ok(device);
+                            }
+                        }
+                    }
+                    _ => {}
+                }
 
-        info!(
-            "设备自动注册成功: device_id={}, device_type={}",
-            device.id, device_type
-        );
-
-        Ok(device)
+                Err(e)
+            }
+        }
     }
 
     /// 获取设备

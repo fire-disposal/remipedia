@@ -8,45 +8,27 @@ use super::types::{
     AlertLevel, MattressData, MattressEvent, MattressState, SmartSamplingConfig, VitalSignsConfig,
 };
 
-/// 床垫事件引擎 - 事件驱动原生架构的核心
-pub struct MattressEventEngine {
-    // 基础状态
-    state: MattressState,
-    state_history: VecDeque<(MattressState, DateTime<Utc>)>,
-    last_position: Option<[i32; 2]>,
-
-    // 配置参数
-    bed_entry_threshold: i32,
-    bed_exit_threshold: i32,
-    movement_score_threshold: f32,
-    sampling_config: SmartSamplingConfig,
-    vital_signs_config: VitalSignsConfig,
+/// 设备级状态：由外部状态存储持有并传入引擎处理函数
+pub struct DeviceState {
+    pub state: MattressState,
+    pub state_history: VecDeque<(MattressState, DateTime<Utc>)>,
+    pub last_position: Option<[i32; 2]>,
 
     // 事件驱动状态
-    last_vital_signs_event: Option<DateTime<Utc>>,
-    last_apnea_event: Option<DateTime<Utc>>,
-    last_moisture_event: Option<(bool, DateTime<Utc>)>,
-    last_scheduled_measurement: Option<DateTime<Utc>>,
-    apnea_start_time: Option<DateTime<Utc>>,
-    moisture_start_time: Option<DateTime<Utc>>,
+    pub last_vital_signs_event: Option<DateTime<Utc>>,
+    pub last_apnea_event: Option<DateTime<Utc>>,
+    pub last_moisture_event: Option<(bool, DateTime<Utc>)>,
+    pub last_scheduled_measurement: Option<DateTime<Utc>>,
+    pub apnea_start_time: Option<DateTime<Utc>>,
+    pub moisture_start_time: Option<DateTime<Utc>>,
 }
 
-impl MattressEventEngine {
-    /// 创建新的事件引擎
+impl DeviceState {
     pub fn new() -> Self {
         Self {
             state: MattressState::OffBed,
             state_history: VecDeque::with_capacity(100),
             last_position: None,
-
-            // 配置参数
-            bed_entry_threshold: 15,       // 重量值>15认为上床
-            bed_exit_threshold: 10,        // 重量值<10认为离床
-            movement_score_threshold: 3.0, // 体动评分阈值
-            sampling_config: SmartSamplingConfig::default(),
-            vital_signs_config: VitalSignsConfig::default(),
-
-            // 事件驱动状态
             last_vital_signs_event: None,
             last_apnea_event: None,
             last_moisture_event: None,
@@ -55,20 +37,40 @@ impl MattressEventEngine {
             moisture_start_time: None,
         }
     }
+}
+
+/// 床垫事件引擎 - 仅包含配置（无内部可变状态），运行时把 `DeviceState` 传入以获得纯函数式行为
+pub struct MattressEventEngine {
+    // 配置参数
+    pub bed_entry_threshold: i32,
+    pub bed_exit_threshold: i32,
+    pub movement_score_threshold: f32,
+    pub sampling_config: SmartSamplingConfig,
+    pub vital_signs_config: VitalSignsConfig,
+}
+
+impl MattressEventEngine {
+    /// 创建新的事件引擎（配置使用默认值）
+    pub fn new() -> Self {
+        Self {
+            bed_entry_threshold: 15,
+            bed_exit_threshold: 10,
+            movement_score_threshold: 3.0,
+            sampling_config: SmartSamplingConfig::default(),
+            vital_signs_config: VitalSignsConfig::default(),
+        }
+    }
 
     /// 使用自定义配置创建事件引擎
     pub fn with_config(
         sampling_config: SmartSamplingConfig,
         vital_signs_config: VitalSignsConfig,
     ) -> Self {
-        let mut engine = Self::new();
-        engine.sampling_config = sampling_config;
-        engine.vital_signs_config = vital_signs_config;
-        engine
+        Self { sampling_config, vital_signs_config, bed_entry_threshold: 15, bed_exit_threshold: 10, movement_score_threshold: 3.0 }
     }
 
-    /// 处理床垫数据 - 事件驱动原生架构
-    pub fn process_data(&mut self, data: &MattressData) -> AppResult<Vec<MattressEvent>> {
+    /// 处理床垫数据：纯函数式接口，接收 `DeviceState` 的可变引用以更新状态并返回事件列表
+    pub fn process(&self, state: &mut DeviceState, data: &MattressData) -> AppResult<Vec<MattressEvent>> {
         let mut events = Vec::new();
         let timestamp = Utc::now();
 
@@ -83,26 +85,26 @@ impl MattressEventEngine {
         let new_state = self.detect_state(data);
 
         // 2. 上床/下床事件检测
-        if new_state != self.state {
-            if let Some(event) = self.detect_state_change(&new_state, timestamp, data) {
+        if new_state != state.state {
+            if let Some(event) = self.detect_state_change(state, &new_state, timestamp, data) {
                 events.push(event);
-                info!("床垫状态变化事件: {:?} -> {:?}", self.state, new_state);
+                info!("床垫状态变化事件: {:?} -> {:?}", state.state, new_state);
             }
-            self.state = new_state.clone();
-            self.state_history.push_back((new_state, timestamp));
+            state.state = new_state.clone();
+            state.state_history.push_back((new_state, timestamp));
 
             // 保持历史记录在合理范围内
-            if self.state_history.len() > 100 {
-                self.state_history.pop_front();
+            if state.state_history.len() > 100 {
+                state.state_history.pop_front();
             }
         }
 
         // 3. 事件驱动检测（只在床状态下）
-        if self.state == MattressState::OnBed {
+        if state.state == MattressState::OnBed {
             let initial_event_count = events.len();
 
             // 3.1 生命体征异常检测
-            if let Some(event) = self.detect_vital_signs_anomaly(timestamp, data) {
+            if let Some(event) = self.detect_vital_signs_anomaly(state, timestamp, data) {
                 events.push(event);
                 warn!(
                     "检测到生命体征异常: 心率={}, 呼吸率={}",
@@ -111,13 +113,13 @@ impl MattressEventEngine {
             }
 
             // 3.2 呼吸暂停事件检测
-            if let Some(event) = self.detect_apnea_event(timestamp, data) {
+            if let Some(event) = self.detect_apnea_event(state, timestamp, data) {
                 events.push(event);
                 warn!("检测到呼吸暂停事件: 暂停次数={}", data.apnea_count);
             }
 
             // 3.3 体湿异常事件检测
-            if let Some(event) = self.detect_moisture_alert(timestamp, data) {
+            if let Some(event) = self.detect_moisture_alert(state, timestamp, data) {
                 events.push(event);
                 if data.wet_status {
                     warn!("检测到体湿异常事件");
@@ -125,13 +127,13 @@ impl MattressEventEngine {
             }
 
             // 3.4 体动事件检测
-            if let Some(event) = self.detect_movement_event(timestamp, data) {
+            if let Some(event) = self.detect_movement_event(state, timestamp, data) {
                 events.push(event);
                 info!("检测到有意义体动事件");
             }
 
             // 3.5 定时完整数据采集（只在床状态）
-            if let Some(event) = self.detect_scheduled_measurement(timestamp, data) {
+            if let Some(event) = self.detect_scheduled_measurement(state, timestamp, data) {
                 events.push(event);
                 info!(
                     "定时完整数据采集: 心率={}, 呼吸率={}",
@@ -147,13 +149,13 @@ impl MattressEventEngine {
         }
 
         // 4. 更新位置历史
-        self.last_position = Some(data.position);
+        state.last_position = Some(data.position);
 
         // 5. 记录处理统计
         debug!(
             "床垫数据处理完成: 生成 {} 个事件, 当前状态: {:?}",
             events.len(),
-            self.state
+            state.state
         );
 
         Ok(events)
@@ -180,12 +182,13 @@ impl MattressEventEngine {
     // 为节省空间，这里只展示关键方法签名，具体实现与之前相同
 
     fn detect_state_change(
-        &mut self,
+        &self,
+        state: &DeviceState,
         new_state: &MattressState,
         timestamp: DateTime<Utc>,
         data: &MattressData,
     ) -> Option<MattressEvent> {
-        match (&self.state, new_state) {
+        match (&state.state, new_state) {
             (MattressState::OffBed, MattressState::OnBed) => Some(MattressEvent::BedEntry {
                 timestamp,
                 confidence: self.calculate_bed_entry_confidence(data),
@@ -204,12 +207,13 @@ impl MattressEventEngine {
     }
 
     fn detect_vital_signs_anomaly(
-        &mut self,
+        &self,
+        state: &mut DeviceState,
         timestamp: DateTime<Utc>,
         data: &MattressData,
     ) -> Option<MattressEvent> {
         // 检查采样间隔
-        if !self.should_sample_vital_signs(timestamp) {
+        if !self.should_sample_vital_signs(state, timestamp) {
             return None;
         }
 
@@ -256,7 +260,7 @@ impl MattressEventEngine {
 
         // 只有在异常情况下才生成事件
         if !anomaly_type.is_empty() {
-            self.last_vital_signs_event = Some(timestamp);
+            state.last_vital_signs_event = Some(timestamp);
 
             warn!(
                 "生命体征异常检测: 心率={}({:?}), 呼吸率={}({:?}), 异常类型: {}",
@@ -278,7 +282,8 @@ impl MattressEventEngine {
     }
 
     fn detect_apnea_event(
-        &mut self,
+        &self,
+        state: &mut DeviceState,
         timestamp: DateTime<Utc>,
         data: &MattressData,
     ) -> Option<MattressEvent> {
@@ -286,12 +291,12 @@ impl MattressEventEngine {
 
         // 呼吸暂停检测逻辑
         if current_apnea > 0 {
-            if self.apnea_start_time.is_none() {
+            if state.apnea_start_time.is_none() {
                 // 开始新的呼吸暂停事件
-                self.apnea_start_time = Some(timestamp);
+                state.apnea_start_time = Some(timestamp);
             }
 
-            let duration = if let Some(start_time) = self.apnea_start_time {
+            let duration = if let Some(start_time) = state.apnea_start_time {
                 timestamp.signed_duration_since(start_time).num_seconds() as i32
             } else {
                 0
@@ -304,8 +309,8 @@ impl MattressEventEngine {
             };
 
             // 更新最后事件时间，避免频繁触发
-            if self.should_trigger_apnea_event(timestamp) {
-                self.last_apnea_event = Some(timestamp);
+            if self.should_trigger_apnea_event(state, timestamp) {
+                state.last_apnea_event = Some(timestamp);
 
                 warn!(
                     "呼吸暂停事件检测: 持续时间={}秒, 严重程度={:?}, 暂停次数={}",
@@ -327,26 +332,27 @@ impl MattressEventEngine {
             }
         } else {
             // 呼吸恢复正常，重置计时
-            if self.apnea_start_time.is_some() {
+            if state.apnea_start_time.is_some() {
                 info!("呼吸暂停结束，恢复正常呼吸");
-                self.apnea_start_time = None;
+                state.apnea_start_time = None;
             }
             None
         }
     }
 
     fn detect_moisture_alert(
-        &mut self,
+        &self,
+        state: &mut DeviceState,
         timestamp: DateTime<Utc>,
         data: &MattressData,
     ) -> Option<MattressEvent> {
         let current_wet = data.wet_status;
 
-        match (current_wet, self.last_moisture_event) {
+        match (current_wet, state.last_moisture_event) {
             (true, None) => {
                 // 开始体湿事件
-                self.moisture_start_time = Some(timestamp);
-                self.last_moisture_event = Some((true, timestamp));
+                state.moisture_start_time = Some(timestamp);
+                state.last_moisture_event = Some((true, timestamp));
                 None // 不立即触发，等待持续时间
             }
             (true, Some((prev_wet, prev_time))) if prev_wet => {
@@ -355,8 +361,8 @@ impl MattressEventEngine {
                     timestamp.signed_duration_since(prev_time).num_minutes() as i32;
 
                 if duration_minutes >= self.vital_signs_config.moisture_alert_threshold_minutes {
-                    if self.should_trigger_moisture_event(timestamp) {
-                        self.last_moisture_event = Some((true, timestamp));
+                    if self.should_trigger_moisture_event(state, timestamp) {
+                        state.last_moisture_event = Some((true, timestamp));
 
                         Some(MattressEvent::MoistureAlert {
                             timestamp,
@@ -375,8 +381,8 @@ impl MattressEventEngine {
                 // 体湿结束事件
                 let duration_minutes =
                     timestamp.signed_duration_since(prev_time).num_minutes() as i32;
-                self.last_moisture_event = Some((false, timestamp));
-                self.moisture_start_time = None;
+                state.last_moisture_event = Some((false, timestamp));
+                state.moisture_start_time = None;
 
                 Some(MattressEvent::MoistureAlert {
                     timestamp,
@@ -390,7 +396,8 @@ impl MattressEventEngine {
     }
 
     fn detect_movement_event(
-        &mut self,
+        &self,
+        state: &DeviceState,
         timestamp: DateTime<Utc>,
         data: &MattressData,
     ) -> Option<MattressEvent> {
@@ -398,7 +405,7 @@ impl MattressEventEngine {
             return None;
         }
 
-        let intensity = self.calculate_movement_intensity(data);
+        let intensity = self.calculate_movement_intensity(state, data);
         let score = self.calculate_movement_score(data, intensity);
 
         if score >= self.movement_score_threshold as i32 {
@@ -414,17 +421,18 @@ impl MattressEventEngine {
     }
 
     fn detect_scheduled_measurement(
-        &mut self,
+        &self,
+        state: &mut DeviceState,
         timestamp: DateTime<Utc>,
         data: &MattressData,
     ) -> Option<MattressEvent> {
         // 只在床状态下进行定时采集
-        if self.state != MattressState::OnBed {
+        if state.state != MattressState::OnBed {
             return None;
         }
 
         // 检查是否到了定时采集时间
-        if !self.should_sample_scheduled_measurement(timestamp) {
+        if !self.should_sample_scheduled_measurement(state, timestamp) {
             return None;
         }
 
@@ -433,7 +441,7 @@ impl MattressEventEngine {
             return None;
         }
 
-        self.last_scheduled_measurement = Some(timestamp);
+        state.last_scheduled_measurement = Some(timestamp);
 
         Some(MattressEvent::ScheduledMeasurement {
             timestamp,
@@ -446,8 +454,8 @@ impl MattressEventEngine {
         })
     }
 
-    fn calculate_movement_intensity(&self, data: &MattressData) -> f32 {
-        if let Some(last_pos) = self.last_position {
+    fn calculate_movement_intensity(&self, state: &DeviceState, data: &MattressData) -> f32 {
+        if let Some(last_pos) = state.last_position {
             let dx = (data.position[0] - last_pos[0]).abs() as f32;
             let dy = (data.position[1] - last_pos[1]).abs() as f32;
             (dx + dy).min(10.0) // 限制在0-10范围
@@ -490,18 +498,18 @@ impl MattressEventEngine {
     }
 
     // 智能采样策略辅助方法
-    fn should_sample_vital_signs(&self, _timestamp: DateTime<Utc>) -> bool {
+    fn should_sample_vital_signs(&self, state: &DeviceState, _timestamp: DateTime<Utc>) -> bool {
         let alert_level = self.assess_current_alert_level();
 
         match alert_level {
             AlertLevel::Normal => {
-                self.check_time_interval_minutes(self.sampling_config.normal_interval_minutes)
+                self.check_time_interval_minutes(state, self.sampling_config.normal_interval_minutes)
             }
             AlertLevel::Warning => {
-                self.check_time_interval_minutes(self.sampling_config.warning_interval_minutes)
+                self.check_time_interval_minutes(state, self.sampling_config.warning_interval_minutes)
             }
             AlertLevel::Critical => {
-                self.check_time_interval_seconds(self.sampling_config.critical_interval_seconds)
+                self.check_time_interval_seconds(state, self.sampling_config.critical_interval_seconds)
             }
         }
     }
@@ -512,8 +520,8 @@ impl MattressEventEngine {
         AlertLevel::Normal
     }
 
-    fn check_time_interval_minutes(&self, interval: i32) -> bool {
-        if let Some(last_event) = self.last_vital_signs_event {
+    fn check_time_interval_minutes(&self, state: &DeviceState, interval: i32) -> bool {
+        if let Some(last_event) = state.last_vital_signs_event {
             let elapsed = Utc::now().signed_duration_since(last_event);
             elapsed.num_minutes() >= interval as i64
         } else {
@@ -521,8 +529,8 @@ impl MattressEventEngine {
         }
     }
 
-    fn check_time_interval_seconds(&self, interval: i32) -> bool {
-        if let Some(last_event) = self.last_vital_signs_event {
+    fn check_time_interval_seconds(&self, state: &DeviceState, interval: i32) -> bool {
+        if let Some(last_event) = state.last_vital_signs_event {
             let elapsed = Utc::now().signed_duration_since(last_event);
             elapsed.num_seconds() >= interval as i64
         } else {
@@ -530,8 +538,8 @@ impl MattressEventEngine {
         }
     }
 
-    fn should_trigger_apnea_event(&self, timestamp: DateTime<Utc>) -> bool {
-        if let Some(last_event) = self.last_apnea_event {
+    fn should_trigger_apnea_event(&self, state: &DeviceState, timestamp: DateTime<Utc>) -> bool {
+        if let Some(last_event) = state.last_apnea_event {
             let elapsed = timestamp.signed_duration_since(last_event);
             elapsed.num_seconds() >= 30 // 30秒内不重复触发
         } else {
@@ -539,8 +547,8 @@ impl MattressEventEngine {
         }
     }
 
-    fn should_trigger_moisture_event(&self, timestamp: DateTime<Utc>) -> bool {
-        if let Some((_, last_time)) = self.last_moisture_event {
+    fn should_trigger_moisture_event(&self, state: &DeviceState, timestamp: DateTime<Utc>) -> bool {
+        if let Some((_, last_time)) = state.last_moisture_event {
             let elapsed = timestamp.signed_duration_since(last_time);
             elapsed.num_minutes() >= 5 // 5分钟内不重复触发
         } else {
@@ -548,8 +556,8 @@ impl MattressEventEngine {
         }
     }
 
-    fn should_sample_scheduled_measurement(&self, timestamp: DateTime<Utc>) -> bool {
-        if let Some(last_measurement) = self.last_scheduled_measurement {
+    fn should_sample_scheduled_measurement(&self, state: &DeviceState, timestamp: DateTime<Utc>) -> bool {
+        if let Some(last_measurement) = state.last_scheduled_measurement {
             let elapsed = timestamp.signed_duration_since(last_measurement);
             elapsed.num_minutes() >= self.sampling_config.normal_interval_minutes as i64
         } else {

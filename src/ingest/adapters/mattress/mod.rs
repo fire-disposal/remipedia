@@ -4,6 +4,8 @@
 
 mod adapter;
 mod event_engine;
+mod transport;
+mod decoder;
 mod types;
 
 // 公开主要类型
@@ -14,6 +16,6 @@ pub use types::{
     TurnOverState, VitalSignsConfig,
 };
 
-// 为了向后兼容，提供类型别名
+// 类型别名
 pub type SmartMattressAdapter = MattressAdapter;
-pub type SmartMattressFilter = MattressEventEngine;
+// 事件引擎为模块内实现，但可以直接使用 `MattressEventEngine`（线程安全由调用方负责）

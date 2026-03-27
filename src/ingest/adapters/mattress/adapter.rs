@@ -1,17 +1,18 @@
 use crate::errors::{AppError, AppResult};
-use crate::ingest::adapters::{AdapterOutput, DeviceAdapter, MessagePayload};
 use crate::ingest::adapters::mattress::event_engine::MattressEventEngine;
 use crate::ingest::adapters::mattress::types::{MattressData, TurnOverState};
-use crc::{Crc, CRC_8_SMBUS};
+use crate::ingest::adapters::{AdapterOutput, DeviceAdapter, MessagePayload};
 use chrono::Utc;
-use std::sync;
+use crc::{Crc, CRC_8_SMBUS};
 
 /// 智能床垫适配器 - 集成事件引擎
 pub struct MattressAdapter {
     // 直接持有事件引擎实例（线程安全由 Mutex 提供），不再通过兼容 wrapper
     event_engine: std::sync::Arc<std::sync::Mutex<MattressEventEngine>>,
     // 设备/适配器级状态（当前设计为单实例状态，与旧行为一致）
-    device_state: std::sync::Arc<std::sync::Mutex<crate::ingest::adapters::mattress::event_engine::DeviceState>>,
+    device_state: std::sync::Arc<
+        std::sync::Mutex<crate::ingest::adapters::mattress::event_engine::DeviceState>,
+    >,
     turn_over_state: std::sync::Mutex<TurnOverState>,
 }
 
@@ -19,7 +20,9 @@ impl MattressAdapter {
     pub fn new() -> Self {
         Self {
             event_engine: std::sync::Arc::new(std::sync::Mutex::new(MattressEventEngine::new())),
-            device_state: std::sync::Arc::new(std::sync::Mutex::new(crate::ingest::adapters::mattress::event_engine::DeviceState::new())),
+            device_state: std::sync::Arc::new(std::sync::Mutex::new(
+                crate::ingest::adapters::mattress::event_engine::DeviceState::new(),
+            )),
             turn_over_state: std::sync::Mutex::new(TurnOverState::new(2.0)),
         }
     }
@@ -27,7 +30,13 @@ impl MattressAdapter {
     /// 使用自定义配置创建适配器
     /// 使用已存在的事件引擎服务实例（用于测试或注入）
     pub fn with_service(svc: std::sync::Arc<std::sync::Mutex<MattressEventEngine>>) -> Self {
-        Self { event_engine: svc, device_state: std::sync::Arc::new(std::sync::Mutex::new(crate::ingest::adapters::mattress::event_engine::DeviceState::new())), turn_over_state: std::sync::Mutex::new(TurnOverState::new(2.0)) }
+        Self {
+            event_engine: svc,
+            device_state: std::sync::Arc::new(std::sync::Mutex::new(
+                crate::ingest::adapters::mattress::event_engine::DeviceState::new(),
+            )),
+            turn_over_state: std::sync::Mutex::new(TurnOverState::new(2.0)),
+        }
     }
 
     /// 解析TCP数据包
@@ -61,9 +70,8 @@ impl MattressAdapter {
         }
 
         // 解包 MessagePack -> serde_json::Value 便于字段映射（字段名大小写兼容）
-        let v: serde_json::Value = rmp_serde::from_slice(data_bytes).map_err(|e| {
-            AppError::ValidationError(format!("MessagePack 解析失败: {}", e))
-        })?;
+        let v: serde_json::Value = rmp_serde::from_slice(data_bytes)
+            .map_err(|e| AppError::ValidationError(format!("MessagePack 解析失败: {}", e)))?;
 
         // helper：根据可能的大/小写键名获取字符串
         let get_str = |obj: &serde_json::Value, keys: &[&str]| -> Option<String> {
@@ -76,42 +84,73 @@ impl MattressAdapter {
         };
 
         // 顶层字段
-        let manufacturer = get_str(&v, &["Ma", "ma"]).ok_or_else(|| {
-            AppError::ValidationError("缺少制造商字段 Ma".into())
-        })?;
+        let manufacturer = get_str(&v, &["Ma", "ma"])
+            .ok_or_else(|| AppError::ValidationError("缺少制造商字段 Ma".into()))?;
 
-        let model = get_str(&v, &["Mo", "mo"]).ok_or_else(|| {
-            AppError::ValidationError("缺少型号字段 Mo".into())
-        })?;
+        let model = get_str(&v, &["Mo", "mo"])
+            .ok_or_else(|| AppError::ValidationError("缺少型号字段 Mo".into()))?;
 
-        let version = v.get("V").or_else(|| v.get("v")).and_then(|x| x.as_i64()).unwrap_or(1) as i32;
+        let version = v
+            .get("V")
+            .or_else(|| v.get("v"))
+            .and_then(|x| x.as_i64())
+            .unwrap_or(1) as i32;
 
-        let serial_number = get_str(&v, &["Sn", "sn"]).ok_or_else(|| {
-            AppError::ValidationError("缺少序列号 Sn".into())
-        })?;
+        let serial_number = get_str(&v, &["Sn", "sn"])
+            .ok_or_else(|| AppError::ValidationError("缺少序列号 Sn".into()))?;
 
         // D 节点
-        let d = v.get("D").or_else(|| v.get("d")).ok_or_else(|| {
-            AppError::ValidationError("缺少 D 节点".into())
-        })?;
+        let d = v
+            .get("D")
+            .or_else(|| v.get("d"))
+            .ok_or_else(|| AppError::ValidationError("缺少 D 节点".into()))?;
 
         let firmware_version = d.get("fv").and_then(|x| x.as_i64()).unwrap_or(0) as i32;
 
-        let status = get_str(d, &["St", "st"]).ok_or_else(|| AppError::ValidationError("缺少状态 St".into()))?;
+        let status = get_str(d, &["St", "st"])
+            .ok_or_else(|| AppError::ValidationError("缺少状态 St".into()))?;
 
         // 对于 Mo=03 型号，有些字段可能为默认值或不可信，需以 St 为主判定
-        let heart_rate = d.get("Hb").or_else(|| d.get("hb")).and_then(|x| x.as_i64()).unwrap_or(0) as i32;
-        let breath_rate = d.get("Br").or_else(|| d.get("br")).and_then(|x| x.as_i64()).unwrap_or(0) as i32;
-        let wet_status = d.get("Wt").or_else(|| d.get("wt")).and_then(|x| x.as_bool()).unwrap_or(false);
-        let apnea_count = d.get("Od").or_else(|| d.get("od")).and_then(|x| x.as_i64()).unwrap_or(0) as i32;
-        let weight_value = d.get("We").or_else(|| d.get("we")).and_then(|x| x.as_i64()).unwrap_or(-1) as i32;
+        let heart_rate = d
+            .get("Hb")
+            .or_else(|| d.get("hb"))
+            .and_then(|x| x.as_i64())
+            .unwrap_or(0) as i32;
+        let breath_rate = d
+            .get("Br")
+            .or_else(|| d.get("br"))
+            .and_then(|x| x.as_i64())
+            .unwrap_or(0) as i32;
+        let wet_status = d
+            .get("Wt")
+            .or_else(|| d.get("wt"))
+            .and_then(|x| x.as_bool())
+            .unwrap_or(false);
+        let apnea_count = d
+            .get("Od")
+            .or_else(|| d.get("od"))
+            .and_then(|x| x.as_i64())
+            .unwrap_or(0) as i32;
+        let weight_value = d
+            .get("We")
+            .or_else(|| d.get("we"))
+            .and_then(|x| x.as_i64())
+            .unwrap_or(-1) as i32;
 
         let position = d
             .get("P")
             .and_then(|p| p.as_array())
             .and_then(|arr| {
-                let a0 = arr.get(0).and_then(|x| x.as_i64()).map(|v| v as i32).unwrap_or(0);
-                let a1 = arr.get(1).and_then(|x| x.as_i64()).map(|v| v as i32).unwrap_or(0);
+                let a0 = arr
+                    .get(0)
+                    .and_then(|x| x.as_i64())
+                    .map(|v| v as i32)
+                    .unwrap_or(0);
+                let a1 = arr
+                    .get(1)
+                    .and_then(|x| x.as_i64())
+                    .map(|v| v as i32)
+                    .unwrap_or(0);
                 Some([a0, a1])
             })
             .unwrap_or([0, 0]);
@@ -130,6 +169,30 @@ impl MattressAdapter {
             weight_value,
             position,
         })
+    }
+
+    /// 仅提取序列号（用于 transport 快速路由），不触发事件引擎。
+    pub fn extract_serial_number(raw: &[u8]) -> AppResult<String> {
+        if raw.len() < 4 {
+            return Err(AppError::ValidationError("包长度不足以包含头部".into()));
+        }
+        if raw[0] != 0xab || raw[1] != 0xcd {
+            return Err(AppError::ValidationError("无效的包头 magic".into()));
+        }
+        let data_len = raw[2] as usize;
+        if raw.len() < 4 + data_len {
+            return Err(AppError::ValidationError("包体长度不足".into()));
+        }
+
+        let data_bytes = &raw[4..4 + data_len];
+        let v: serde_json::Value = rmp_serde::from_slice(data_bytes)
+            .map_err(|e| AppError::ValidationError(format!("MessagePack 解析失败: {}", e)))?;
+
+        v.get("Sn")
+            .or_else(|| v.get("sn"))
+            .and_then(|x| x.as_str())
+            .map(|s| s.to_string())
+            .ok_or_else(|| AppError::ValidationError("缺少序列号 Sn".into()))
     }
 
     /// 数据降噪处理
@@ -184,8 +247,14 @@ impl DeviceAdapter for MattressAdapter {
         // 使用事件引擎服务处理数据（阻塞式调用，安全在 spawn_blocking 环境中使用）
         // 直接在当前线程加锁调用引擎的 `process`（适配器已在 spawn_blocking 环境中被调用）
         let mattress_events = {
-            let mut eng = self.event_engine.lock().map_err(|_| AppError::ValidationError("event engine 锁被毒化".into()))?;
-            let mut st = self.device_state.lock().map_err(|_| AppError::ValidationError("device state 锁被毒化".into()))?;
+            let eng = self
+                .event_engine
+                .lock()
+                .map_err(|_| AppError::ValidationError("event engine 锁被毒化".into()))?;
+            let mut st = self
+                .device_state
+                .lock()
+                .map_err(|_| AppError::ValidationError("device state 锁被毒化".into()))?;
             eng.process(&mut *st, &engine_data)?
         };
 
@@ -231,21 +300,27 @@ impl DeviceAdapter for MattressAdapter {
         for ev in mattress_events.into_iter() {
             let ev_value = serde_json::to_value(&ev).unwrap_or(serde_json::json!({}));
             let ev_type = match &ev {
-                crate::ingest::adapters::mattress::types::MattressEvent::BedEntry { .. } =>
-                    Some("bed_entry".to_string()),
-                crate::ingest::adapters::mattress::types::MattressEvent::BedExit { .. } =>
-                    Some("bed_exit".to_string()),
-                crate::ingest::adapters::mattress::types::MattressEvent::VitalSignsAnomaly { .. } =>
-                    Some("vital_signs_anomaly".to_string()),
-                crate::ingest::adapters::mattress::types::MattressEvent::ApneaEvent { .. } =>
-                    Some("apnea_event".to_string()),
-                crate::ingest::adapters::mattress::types::MattressEvent::MoistureAlert { .. } =>
-                    Some("moisture_alert".to_string()),
-                crate::ingest::adapters::mattress::types::MattressEvent::SignificantMovement { .. } =>
-                    Some("significant_movement".to_string()),
-                crate::ingest::adapters::mattress::types::MattressEvent::ScheduledMeasurement { .. } =>
-                    Some("scheduled_measurement".to_string()),
-                _ => None,
+                crate::ingest::adapters::mattress::types::MattressEvent::BedEntry { .. } => {
+                    Some("bed_entry".to_string())
+                }
+                crate::ingest::adapters::mattress::types::MattressEvent::BedExit { .. } => {
+                    Some("bed_exit".to_string())
+                }
+                crate::ingest::adapters::mattress::types::MattressEvent::VitalSignsAnomaly {
+                    ..
+                } => Some("vital_signs_anomaly".to_string()),
+                crate::ingest::adapters::mattress::types::MattressEvent::ApneaEvent { .. } => {
+                    Some("apnea_event".to_string())
+                }
+                crate::ingest::adapters::mattress::types::MattressEvent::MoistureAlert {
+                    ..
+                } => Some("moisture_alert".to_string()),
+                crate::ingest::adapters::mattress::types::MattressEvent::SignificantMovement {
+                    ..
+                } => Some("significant_movement".to_string()),
+                crate::ingest::adapters::mattress::types::MattressEvent::ScheduledMeasurement {
+                    ..
+                } => Some("scheduled_measurement".to_string()),
             };
 
             msgs.push(MessagePayload {
@@ -269,7 +344,9 @@ impl DeviceAdapter for MattressAdapter {
                 } else {
                     &msgs
                         .get(0)
-                        .ok_or_else(|| AppError::ValidationError("适配器未返回有效 payload".into()))?
+                        .ok_or_else(|| {
+                            AppError::ValidationError("适配器未返回有效 payload".into())
+                        })?
                         .payload
                 }
             }
@@ -298,7 +375,7 @@ impl DeviceAdapter for MattressAdapter {
             .as_str()
             .ok_or_else(|| AppError::ValidationError("缺少序列号".into()))?;
 
-        if serial_number.len() != 12 {
+        if serial_number.len() < 4 {
             return Err(AppError::ValidationError("序列号格式错误".into()));
         }
 

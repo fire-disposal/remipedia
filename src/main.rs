@@ -14,13 +14,11 @@ use sqlx::PgPool;
 use remipedia::api::routes;
 use remipedia::api::swagger_ui;
 use remipedia::config::Settings;
-use remipedia::ingest::transport::{TransportManager, TransportContext};
-use remipedia::ingest::AdapterRegistry;
-use remipedia::ingest::AdapterManager;
-use remipedia::ingest::adapters::mattress::transport::MattressTransport;
-use remipedia::ingest::transport::tcp::TcpTransport;
 use remipedia::ingest::transport::mqtt::MqttTransport;
-use remipedia::ingest::adapters::mattress::MattressAdapter;
+use remipedia::ingest::transport::tcp::TcpTransport;
+use remipedia::ingest::transport::{TransportContext, TransportManager};
+use remipedia::ingest::AdapterManager;
+use remipedia::ingest::AdapterRegistry;
 use remipedia::repository::UserRepository;
 
 static MIGRATOR: sqlx::migrate::Migrator = sqlx::migrate!();
@@ -186,12 +184,10 @@ async fn main() -> anyhow::Result<()> {
         let mut manager_tm = TransportManager::new();
         let registry = std::sync::Arc::new(AdapterRegistry::new());
         let adapter_manager = AdapterManager::new(Arc::new(pool.clone()), registry.clone());
-        let ctx = TransportContext { adapters: registry, manager: adapter_manager.clone() };
-
-        // mattress transport (legacy port)
-        let adapter = std::sync::Arc::new(MattressAdapter::new());
-        let mt = std::sync::Arc::new(MattressTransport::new("0.0.0.0:5858".to_string(), adapter));
-        manager_tm.register(mt);
+        let ctx = TransportContext {
+            adapters: registry,
+            manager: adapter_manager.clone(),
+        };
 
         // tcp transport (if enabled)
         if settings.tcp.enabled {
@@ -203,7 +199,12 @@ async fn main() -> anyhow::Result<()> {
         // mqtt transport (if enabled)
         if settings.mqtt.enabled {
             let mqtt_cfg = settings.mqtt.clone();
-            let mqtt_tr = std::sync::Arc::new(MqttTransport::new(mqtt_cfg.broker.clone(), mqtt_cfg.port, mqtt_cfg.client_id.clone(), mqtt_cfg.topic_prefix.clone()));
+            let mqtt_tr = std::sync::Arc::new(MqttTransport::new(
+                mqtt_cfg.broker.clone(),
+                mqtt_cfg.port,
+                mqtt_cfg.client_id.clone(),
+                mqtt_cfg.topic_prefix.clone(),
+            ));
             manager_tm.register(mqtt_tr);
         }
 

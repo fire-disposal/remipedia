@@ -3,12 +3,11 @@ pub mod fall_detector; // 跌倒检测器模块
 pub mod mattress;
 pub mod spo2; // 血氧传感器模块 // 床垫适配器模块
 
-
 /// 适配器接口导出：所有适配器应实现 `DeviceAdapter`，并返回统一的 `AdapterOutput`。
 /// 约束：
 /// - `parse(raw)` 应为同步/快速路径或在调用端使用 `spawn_blocking`。
 /// - `AdapterOutput::Messages` 的 `payload` 用于入库，字段命名应与 `DataService` 入库约定一致。
-pub use adapter_trait::{DeviceAdapter, AdapterOutput, MessagePayload};
+pub use adapter_trait::{AdapterOutput, DeviceAdapter, MessagePayload};
 use std::collections::HashMap;
 use std::sync::Arc;
 

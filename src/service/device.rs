@@ -94,7 +94,9 @@ impl<'a> DeviceService<'a> {
                 match &e {
                     AppError::DatabaseError(sqlx::Error::Database(db_err)) => {
                         if db_err.code().map(|c| c == "23505").unwrap_or(false) {
-                            if let Some(device) = self.device_repo.find_by_serial(serial_number).await? {
+                            if let Some(device) =
+                                self.device_repo.find_by_serial(serial_number).await?
+                            {
                                 info!("设备已存在(并发创建): device_id={}", device.id);
                                 return Ok(device);
                             }

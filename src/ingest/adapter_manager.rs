@@ -1,12 +1,3 @@
-/// AdapterManager: 负责把外部 Transport 层发送过来的原始帧按 device_type 分发到
-/// 对应适配器的 worker。设计要点：
-/// - 每种 device_type 一个有界 channel + worker（避免单个慢适配器导致全局阻塞）
-/// - 在 worker 内使用 `spawn_blocking` 调用适配器的 `parse`，将 CPU/阻塞操作移出 async runtime
-/// - Worker 负责把 `AdapterOutput` 转换为 `IngestData` 并调用 `DataService::ingest`
-///
-/// 约束与扩展点：
-/// - `AdapterRegistry` 应保持单一来源（建议在应用启动时创建并注入，而不是多次构建）
-/// - `device_type` 字符串必须与 `AdapterRegistry` 的 key 保持一致（优先使用 `DeviceType::as_str()`）
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -16,9 +7,10 @@ use tokio::sync::mpsc::{self, Sender};
 use crate::core::entity::IngestData;
 use crate::core::value_object::DeviceType;
 use crate::errors::AppError;
-use crate::ingest::adapters::AdapterRegistry;
-use crate::service::{BindingService, DeviceService};
-use crate::service::DataService;
+use crate::ingest::adapters::{AdapterOutput, AdapterRegistry, DeviceAdapter, MessagePayload};
+use crate::service::{BindingService, DataService, DeviceService};
+
+const WORKER_QUEUE_SIZE: usize = 1024;
 
 /// 入站消息（从 MQTT/TCP 分发到适配器 worker）
 pub struct InboundMessage {
@@ -30,104 +22,40 @@ pub struct InboundMessage {
     pub source: String,
 }
 
-/// 简单的适配器管理器：为每种设备类型启动一个 worker，接收原始消息并执行解析/入库。
+/// 每个设备类型对应独立 worker 的 ingest 管理器。
+///
+/// 设计目标：
+/// 1. transport 只做接入，不做业务解析；
+/// 2. adapter 只做 parse + validate；
+/// 3. manager 负责流水化处理（parse -> validate -> persist）。
 pub struct AdapterManager {
     senders: HashMap<String, Sender<InboundMessage>>,
     pool: Arc<sqlx::PgPool>,
 }
 
 impl AdapterManager {
-    /// 创建并启动管理器（为注册表中的每个适配器启动 worker）。
     pub fn new(pool: Arc<sqlx::PgPool>, registry: Arc<AdapterRegistry>) -> Arc<Self> {
-        let mut senders: HashMap<String, Sender<InboundMessage>> = HashMap::new();
-
-        for (device_type, adapter) in registry.iter().into_iter() {
-            let dt = device_type.as_str().to_string();
-            // 有界通道，避免无界堆积
-            let (tx, mut rx) = mpsc::channel::<InboundMessage>(500);
-            let pool_clone = pool.clone();
-            let adapter_arc = adapter.clone();
-
-            // spawn worker
-            tokio::spawn(async move {
-                let data_service = DataService::new(&pool_clone);
-                while let Some(msg) = rx.recv().await {
-                    // 把解析/复杂处理移出 async runtime，使用 blocking 线程池执行 parse
-                    let adapter_clone = adapter_arc.clone();
-                    let raw_payload = msg.raw_payload.clone();
-
-                    let parse_result = tokio::task::spawn_blocking(move || adapter_clone.parse(&raw_payload))
-                        .await;
-
-                    let output = match parse_result {
-                        Ok(Ok(output)) => output,
-                        Ok(Err(e)) => {
-                            log::error!("适配器解析失败: {}", e);
-                            continue;
-                        }
-                        Err(e) => {
-                            log::error!("spawn_blocking join error: {}", e);
-                            continue;
-                        }
-                    };
-
-                    if let Err(e) = adapter_arc.validate(&output) {
-                        log::error!("适配器验证失败: {}", e);
-                        continue;
-                    }
-
-                    match output {
-                        crate::ingest::adapters::AdapterOutput::Messages(msgs) => {
-                            for m in msgs {
-                                let mut payload = if m.payload.is_object() {
-                                    let mut map = m.payload.as_object().cloned().unwrap_or_default();
-                                    if let Some(mt) = &m.message_type {
-                                        map.insert("message_type".to_string(), serde_json::Value::String(mt.clone()));
-                                    }
-                                    if let Some(sev) = &m.severity {
-                                        map.insert("severity".to_string(), serde_json::Value::String(sev.clone()));
-                                    }
-                                    serde_json::Value::Object(map)
-                                } else {
-                                    let mut map = serde_json::Map::new();
-                                    map.insert("value".to_string(), m.payload.clone());
-                                    if let Some(mt) = &m.message_type {
-                                        map.insert("message_type".to_string(), serde_json::Value::String(mt.clone()));
-                                    }
-                                    if let Some(sev) = &m.severity {
-                                        map.insert("severity".to_string(), serde_json::Value::String(sev.clone()));
-                                    }
-                                    serde_json::Value::Object(map)
-                                };
-
-                                let ingest_data = IngestData {
-                                    time: m.time,
-                                    device_id: msg.device_id,
-                                    subject_id: msg.subject_id,
-                                    data_type: m.data_type.clone(),
-                                    payload,
-                                    source: msg.source.clone(),
-                                };
-
-                                if let Err(e) = data_service.ingest(ingest_data).await {
-                                    log::error!("入库失败: {}", e);
-                                }
-                            }
-                        }
-                    }
-                }
-            });
-
-            senders.insert(dt, tx);
-        }
+        let senders = registry
+            .iter()
+            .into_iter()
+            .map(|(device_type, adapter)| {
+                let worker_device_type = device_type.as_str().to_string();
+                let (tx, rx) = mpsc::channel::<InboundMessage>(WORKER_QUEUE_SIZE);
+                let pool_clone = pool.clone();
+                tokio::spawn(run_device_worker(
+                    worker_device_type.clone(),
+                    adapter,
+                    pool_clone,
+                    rx,
+                ));
+                (worker_device_type, tx)
+            })
+            .collect();
 
         Arc::new(Self { senders, pool })
     }
 
     /// 通过 serial_number 自动注册/获取设备并分发原始消息。
-    ///
-    /// 适用于 Transport 侧：统一处理设备发现、绑定查询与 device_type 检查，
-    /// 让不同 transport 与 adapters 使用同一条入站路径。
     pub async fn dispatch_by_serial(
         &self,
         serial_number: &str,
@@ -151,7 +79,9 @@ impl AdapterManager {
         let device = device_service
             .auto_register_or_get(serial_number, &normalized_type)
             .await?;
-        let subject_id = binding_service.get_current_binding_subject(&device.id).await?;
+        let subject_id = binding_service
+            .get_current_binding_subject(&device.id)
+            .await?;
 
         let inbound = InboundMessage {
             time: Utc::now(),
@@ -166,13 +96,112 @@ impl AdapterManager {
         self.dispatch(&device_type, inbound).await
     }
 
-    /// Dispatch 一条消息到对应设备类型的 worker。
+    /// dispatch 一条消息到对应设备 worker。
     pub async fn dispatch(&self, device_type: &str, msg: InboundMessage) -> Result<(), AppError> {
         if let Some(tx) = self.senders.get(device_type) {
-            // try_send 不适用于 async mpsc::Sender; 使用 try_send via try_send if needed, but这里使用 send().await
             tx.send(msg).await.map_err(|_| AppError::InternalError)
         } else {
-            Err(AppError::ValidationError(format!("无对应适配器: {}", device_type)))
+            Err(AppError::ValidationError(format!(
+                "无对应适配器: {}",
+                device_type
+            )))
         }
+    }
+}
+
+async fn run_device_worker(
+    device_type: String,
+    adapter: Arc<dyn DeviceAdapter>,
+    pool: Arc<sqlx::PgPool>,
+    mut rx: tokio::sync::mpsc::Receiver<InboundMessage>,
+) {
+    let data_service = DataService::new(&pool);
+
+    while let Some(msg) = rx.recv().await {
+        if let Err(err) = process_message(&data_service, adapter.clone(), msg).await {
+            log::error!(
+                "ingest pipeline failed: device_type={}, err={}",
+                device_type,
+                err
+            );
+        }
+    }
+
+    log::warn!("ingest worker stopped: {}", device_type);
+}
+
+async fn process_message(
+    data_service: &DataService<'_>,
+    adapter: Arc<dyn DeviceAdapter>,
+    msg: InboundMessage,
+) -> Result<(), AppError> {
+    let output = parse_stage(adapter.clone(), &msg.raw_payload).await?;
+    validate_stage(adapter, &output)?;
+    persist_stage(data_service, &msg, output).await
+}
+
+async fn parse_stage(
+    adapter: Arc<dyn DeviceAdapter>,
+    raw: &[u8],
+) -> Result<AdapterOutput, AppError> {
+    let raw_owned = raw.to_vec();
+    tokio::task::spawn_blocking(move || adapter.parse(&raw_owned))
+        .await
+        .map_err(|e| AppError::ValidationError(format!("parse join error: {}", e)))?
+}
+
+fn validate_stage(adapter: Arc<dyn DeviceAdapter>, output: &AdapterOutput) -> Result<(), AppError> {
+    adapter.validate(output)
+}
+
+async fn persist_stage(
+    data_service: &DataService<'_>,
+    msg: &InboundMessage,
+    output: AdapterOutput,
+) -> Result<(), AppError> {
+    match output {
+        AdapterOutput::Messages(messages) => {
+            for payload in messages {
+                let ingest_data = map_payload_to_ingest(msg, payload);
+                if let Err(err) = data_service.ingest(ingest_data).await {
+                    log::error!("ingest persist failed: {}", err);
+                }
+            }
+        }
+    }
+
+    Ok(())
+}
+
+fn map_payload_to_ingest(msg: &InboundMessage, payload: MessagePayload) -> IngestData {
+    let mut normalized_payload = payload.payload;
+
+    if normalized_payload.is_object() {
+        if let Some(map) = normalized_payload.as_object_mut() {
+            if let Some(message_type) = payload.message_type {
+                map.insert(
+                    "message_type".to_string(),
+                    serde_json::Value::String(message_type),
+                );
+            }
+            if let Some(severity) = payload.severity {
+                map.insert("severity".to_string(), serde_json::Value::String(severity));
+            }
+        }
+    } else {
+        normalized_payload = serde_json::json!({
+            "value": normalized_payload,
+            "message_type": payload.message_type,
+            "severity": payload.severity,
+        });
+    }
+
+    IngestData {
+        time: payload.time,
+        device_id: msg.device_id,
+        subject_id: msg.subject_id,
+        data_type: payload.data_type,
+        payload: normalized_payload,
+        source: msg.source.clone(),
     }
 }

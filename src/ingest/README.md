@@ -15,7 +15,8 @@
   - `validate()` 在解析后用于业务合法性检查。
 
 - adapter_manager.rs
-  - 运行时的工作池：为每个 `device_type` 启动一个 Worker（有界 mpsc），负责调用适配器解析并把结果写入 `DataService`。
+  - 运行时工作池：为每个 `device_type` 启动一个 Worker（有界 mpsc）。
+  - Worker 内部采用固定流水阶段：`parse -> validate -> persist`，便于扩展与观测。
   - 负责错误隔离（单个适配器解析失败不影响其他适配器）。
 
 - event_engine（位于 adapters 下的具体引擎）

@@ -65,7 +65,8 @@ async fn handle_connection(
             Ok(n) => {
                 remaining.extend_from_slice(&buffer[..n]);
                 while let Some(packet) = extract_packet(&mut remaining)? {
-                    if let Ok(serial) = extract_serial(&packet) {
+                    // 使用适配器解析包并提取序列号
+                    if let Ok(serial) = extract_serial_from_packet(&packet) {
                         let device_manager = device_manager.clone();
                         let device_type = default_type.to_string();
                         
@@ -83,9 +84,19 @@ async fn handle_connection(
     Ok(())
 }
 
-fn extract_serial(packet: &[u8]) -> Result<String, anyhow::Error> {
-    crate::ingest::adapters::mattress::MattressAdapter::extract_serial_number(packet)
-        .map_err(|e| anyhow::anyhow!(e))
+/// 从数据包中提取序列号
+fn extract_serial_from_packet(packet: &[u8]) -> Result<String, anyhow::Error> {
+    // 解析 MessagePack
+    let value: serde_json::Value = rmp_serde::from_slice(&packet[4..])
+        .map_err(|e| anyhow::anyhow!("MessagePack 解析失败: {}", e))?;
+    
+    // 提取序列号（兼容大小写）
+    let serial = value.get("serial_number")
+        .or_else(|| value.get("Sn"))
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| anyhow::anyhow!("缺少序列号"))?;
+    
+    Ok(serial.to_string())
 }
 
 fn extract_packet(buffer: &mut Vec<u8>) -> Result<Option<Vec<u8>>, anyhow::Error> {

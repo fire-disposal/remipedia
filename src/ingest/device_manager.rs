@@ -54,9 +54,6 @@ fn create_adapter(device_type: &DeviceType) -> AppResult<Box<dyn crate::ingest::
         DeviceType::FallDetector => Ok(Box::new(
             crate::ingest::adapters::fall_detector::FallDetectorAdapter::new()
         )),
-        DeviceType::SpO2Sensor => Ok(Box::new(
-            crate::ingest::adapters::spo2::SpO2Adapter::new()
-        )),
     }
 }
 

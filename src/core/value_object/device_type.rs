@@ -7,7 +7,6 @@ use std::fmt;
 pub enum DeviceType {
     HeartRateMonitor,
     FallDetector,
-    SpO2Sensor,
     SmartMattress,
 }
 
@@ -17,7 +16,6 @@ impl DeviceType {
         match s {
             "heart_rate_monitor" => Some(Self::HeartRateMonitor),
             "fall_detector" => Some(Self::FallDetector),
-            "spo2_sensor" => Some(Self::SpO2Sensor),
             "smart_mattress" => Some(Self::SmartMattress),
             _ => None,
         }
@@ -28,7 +26,6 @@ impl DeviceType {
         match self {
             Self::HeartRateMonitor => "heart_rate_monitor",
             Self::FallDetector => "fall_detector",
-            Self::SpO2Sensor => "spo2_sensor",
             Self::SmartMattress => "smart_mattress",
         }
     }
@@ -38,7 +35,6 @@ impl DeviceType {
         &[
             Self::HeartRateMonitor,
             Self::FallDetector,
-            Self::SpO2Sensor,
             Self::SmartMattress,
         ]
     }

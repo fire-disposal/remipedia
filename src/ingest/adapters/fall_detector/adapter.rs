@@ -1,4 +1,6 @@
 //! 跌倒检测器适配器
+//!
+//! 无状态设计：仅负责解析和验证，状态由 DeviceManager 管理
 
 use crate::errors::{AppError, AppResult};
 use crate::ingest::adapters::adapter_trait::{
@@ -6,58 +8,69 @@ use crate::ingest::adapters::adapter_trait::{
 };
 use chrono::Utc;
 
-use super::types::{FallDetectorData, FallDetectorMessage};
-
-/// 跌倒检测器适配器（示例型 MQTT 输入）
-///
-/// 约定：
-/// - 不做置信度计算或阈值推断；
-/// - 仅做格式校验、时间解析、字段透传。
 pub struct FallDetectorAdapter;
 
 impl FallDetectorAdapter {
     pub fn new() -> Self {
         Self
     }
-
-    pub fn parse_message(&self, payload: &[u8]) -> AppResult<FallDetectorMessage> {
-        serde_json::from_slice(payload)
-            .map_err(|e| AppError::ValidationError(format!("跌倒检测消息解析失败: {}", e)))
-    }
-
-    pub fn to_data(&self, msg: FallDetectorMessage) -> FallDetectorData {
-        let timestamp = msg
-            .timestamp
-            .as_ref()
-            .and_then(|ts| chrono::DateTime::parse_from_rfc3339(ts).ok())
-            .map(|dt| dt.with_timezone(&Utc))
-            .unwrap_or_else(Utc::now);
-
-        FallDetectorData {
-            event_type: msg.event_type,
-            timestamp,
-            details: msg.details,
-        }
-    }
 }
 
 impl DeviceAdapter for FallDetectorAdapter {
+    fn metadata(&self) -> DeviceMetadata {
+        DeviceMetadata {
+            device_type: "fall_detector",
+            display_name: "跌倒检测器",
+            supported_data_types: &["fall_detector"],
+            protocol_version: "1.0",
+        }
+    }
+
     fn parse(&self, raw: &[u8]) -> AppResult<AdapterOutput> {
-        let msg = self.parse_message(raw)?;
-        let data = self.to_data(msg);
+        if raw.is_empty() {
+            return Err(AppError::ValidationError("数据为空".into()));
+        }
+
+        let data: serde_json::Value = serde_json::from_slice(raw)
+            .map_err(|e| AppError::ValidationError(format!("JSON 解析失败: {}", e)))?;
+
+        let event_type = data
+            .get("event_type")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| AppError::ValidationError("缺少 event_type 字段".into()))?
+            .to_string();
+
+        let details = data.get("details").cloned();
+
+        // 解析时间戳
+        let timestamp = data
+            .get("timestamp")
+            .and_then(|v| v.as_str())
+            .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
+            .map(|dt| dt.with_timezone(&Utc))
+            .unwrap_or_else(Utc::now);
+
+        // 根据事件类型设置严重程度
+        let severity = match event_type.as_str() {
+            "person_fall" => Some("critical".to_string()),
+            "person_still" => Some("warning".to_string()),
+            _ => Some("info".to_string()),
+        };
 
         let payload = serde_json::json!({
-            "event_type": data.event_type.as_str(),
-            "details": data.details,
+            "event_type": event_type,
+            "details": details,
         });
 
-        Ok(AdapterOutput::Messages(vec![MessagePayload {
-            time: data.timestamp,
-            data_type: self.data_type().to_string(),
-            message_type: Some(data.event_type.as_str().to_string()),
-            severity: None,
+        let msg = MessagePayload {
+            time: timestamp,
+            data_type: "fall_detector".to_string(),
+            message_type: Some(event_type),
+            severity,
             payload,
-        }]))
+        };
+
+        Ok(AdapterOutput::Messages(vec![msg]))
     }
 
     fn validate(&self, output: &AdapterOutput) -> AppResult<()> {
@@ -76,13 +89,8 @@ impl DeviceAdapter for FallDetectorAdapter {
         }
     }
 
-    fn metadata(&self) -> DeviceMetadata {
-        DeviceMetadata {
-            device_type: "fall_detector",
-            display_name: "跌倒检测器",
-            supported_data_types: &["fall_detector", "fall_event"],
-            protocol_version: "1.0",
-        }
+    fn clone_box(&self) -> Box<dyn DeviceAdapter> {
+        Box::new(Self::new())
     }
 
     fn device_type(&self) -> &'static str {
@@ -90,11 +98,7 @@ impl DeviceAdapter for FallDetectorAdapter {
     }
 
     fn data_type(&self) -> &'static str {
-        "fall_event"
-    }
-
-    fn clone_box(&self) -> Box<dyn crate::ingest::DeviceAdapter> {
-        Box::new(Self::new())
+        "fall_detector"
     }
 }
 
@@ -109,13 +113,12 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_parse_message_without_confidence() {
+    fn test_parse_fall_event() {
         let adapter = FallDetectorAdapter::new();
         let payload = br#"{"event_type":"person_fall"}"#;
 
-        let msg = adapter.parse_message(payload).unwrap();
-        assert!(msg.timestamp.is_none());
-        assert!(msg.details.is_none());
+        let output = adapter.parse(payload).unwrap();
+        assert!(adapter.validate(&output).is_ok());
     }
 
     #[test]

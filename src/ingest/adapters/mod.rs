@@ -12,7 +12,6 @@ mod adapter_trait;
 pub mod fall_detector;
 pub mod heart_rate;
 pub mod mattress;
-pub mod spo2;
 
 // 公开 trait 和类型
 pub use adapter_trait::{
@@ -41,7 +40,6 @@ impl AdapterRegistry {
         // 自动注册所有设备模块
         registry.register_module::<mattress::MattressModule>();
         registry.register_module::<fall_detector::FallDetectorModule>();
-        registry.register_module::<spo2::SpO2Module>();
         registry.register_module::<heart_rate::HeartRateModule>();
         
         info!("适配器注册表初始化完成，已注册 {} 种设备", registry.adapters.len());

@@ -6,7 +6,7 @@ use tokio::net::{TcpListener, TcpStream};
 
 use crate::ingest::adapters::mattress::adapter::MattressAdapter;
 use crate::ingest::adapters::mattress::decoder::decode_buffer;
-use crate::ingest::adapters::DeviceAdapter;
+use crate::ingest::framework::DeviceAdapter;
 use crate::ingest::transport::{Transport, TransportContext};
 
 /// 兼容 Transport trait 的床垫 TCP 实现

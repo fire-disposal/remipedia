@@ -2,10 +2,9 @@
 //!
 //! 无状态设计：仅负责 TCP 包解析和验证，状态由 DeviceManager 管理
 
+use crate::core::value_object::DeviceType;
 use crate::errors::{AppError, AppResult};
-use crate::ingest::adapters::adapter_trait::{
-    AdapterOutput, DeviceAdapter, DeviceMetadata, MessagePayload,
-};
+use crate::ingest::framework::{AdapterOutput, DeviceAdapter, DeviceMetadata, MessagePayload};
 use chrono::Utc;
 use crc::{Crc, CRC_8_SMBUS};
 
@@ -98,10 +97,11 @@ impl MattressAdapter {
 impl DeviceAdapter for MattressAdapter {
     fn metadata(&self) -> DeviceMetadata {
         DeviceMetadata {
-            device_type: "smart_mattress",
-            display_name: "智能床垫",
-            supported_data_types: &["smart_mattress"],
-            protocol_version: "1.0",
+            device_type: DeviceType::SmartMattress,
+            display_name: "智能床垫".to_string(),
+            description: "智能床垫设备适配器".to_string(),
+            supported_data_types: vec!["smart_mattress".to_string()],
+            protocol_version: "1.0".to_string(),
         }
     }
 
@@ -195,19 +195,8 @@ impl DeviceAdapter for MattressAdapter {
                 }
                 Ok(())
             }
+            AdapterOutput::Empty => Ok(()),
         }
-    }
-
-    fn clone_box(&self) -> Box<dyn DeviceAdapter> {
-        Box::new(Self::new())
-    }
-
-    fn device_type(&self) -> &'static str {
-        "smart_mattress"
-    }
-
-    fn data_type(&self) -> &'static str {
-        "smart_mattress"
     }
 }
 

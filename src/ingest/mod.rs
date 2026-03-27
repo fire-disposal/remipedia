@@ -3,10 +3,10 @@
 //! 简化设计：扁平化架构
 
 pub mod adapters;
-pub mod device_manager;
+pub mod framework;
 
-pub use adapters::*;
-pub use device_manager::*;
+// 只导出新的框架类型
+pub use framework::*;
 
 // 导出 transport
 pub mod transport;

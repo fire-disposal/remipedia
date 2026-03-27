@@ -15,6 +15,7 @@ use remipedia::api::routes;
 use remipedia::api::swagger_ui;
 use remipedia::config::Settings;
 use remipedia::ingest::DeviceManager;
+use remipedia::ingest::AdapterRegistry;
 use remipedia::ingest::transport::mqtt::MqttTransport;
 use remipedia::ingest::transport::tcp::TcpTransport;
 use remipedia::ingest::transport::{TransportContext, TransportManager};
@@ -140,10 +141,19 @@ async fn run_migrations(pool: &PgPool) -> anyhow::Result<()> {
 
 /// 创建 Rocket 应用
 async fn build_rocket(settings: &Settings, pool: PgPool) -> Rocket<Build> {
+    // 创建适配器注册表
+    let mut registry = AdapterRegistry::new();
+    
+    // 注册床垫适配器
+    registry.register(Arc::new(remipedia::ingest::adapters::mattress::MattressAdapter::new()));
+    
+    let registry = Arc::new(registry);
+    
     rocket::build()
         .manage(pool)
         .manage(settings.jwt.clone())
         .manage(settings.mqtt.clone())
+        .manage(registry)
         .attach(Cors)
         .mount("/", remipedia::api::routes::health::routes())
         .mount("/api/v1", routes())

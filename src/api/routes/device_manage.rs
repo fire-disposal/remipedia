@@ -4,10 +4,8 @@ use rocket::serde::json::Json;
 use rocket::State;
 use rocket::{get, post};
 use std::sync::Arc;
-use chrono::Utc;
 
 use crate::ingest::{AdapterRegistry, DeviceManager};
-use crate::errors::AppResult;
 
 #[derive(rocket::serde::Serialize)]
 pub struct DeviceTypeInfo {

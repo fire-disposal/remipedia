@@ -1,10 +1,10 @@
-use anyhow::Result;
 use chrono::Local;
-use rmp_serde::from_read_ref;
+use rmp_serde::from_slice;
 use serde::Deserialize;
 use serde_json::{Map as JsonMap, Value as JsonValue};
 
 #[derive(Debug, Deserialize)]
+#[allow(dead_code)]
 struct BedEntry {
     #[serde(rename = "ma")]
     pub ma: Option<String>,
@@ -52,7 +52,7 @@ pub fn decode_buffer(buf: &[u8]) -> Option<(usize, Option<JsonValue>)> {
         }
         let data = &buf[4..total];
         // try decode MessagePack
-        match from_read_ref::<_, BedEntry>(data) {
+        match from_slice::<BedEntry>(data) {
             Ok(entry) => {
                 let md = map_bedentry(entry);
                 return Some((total, Some(md)));

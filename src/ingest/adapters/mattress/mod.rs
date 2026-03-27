@@ -1,21 +1,31 @@
-//! 智能床垫适配器模块
-//!
-//! 提供事件驱动原生架构的智能床垫数据处理功能
+//! 智能床垫设备模块
+//! 
+//! 聚合床垫设备相关的所有类型、状态和适配器
 
 mod adapter;
 mod decoder;
 mod event_engine;
 pub mod transport;
-mod types;
+pub mod types;
 
-// 公开主要类型
 pub use adapter::MattressAdapter;
+pub use types::*;
 pub use event_engine::MattressEventEngine;
-pub use types::{
-    AlertLevel, MattressData, MattressEvent, MattressState, SmartSamplingConfig, TurnOverEvent,
-    TurnOverState, VitalSignsConfig,
-};
 
-// 类型别名
-pub type SmartMattressAdapter = MattressAdapter;
-// 事件引擎为模块内实现，但可以直接使用 `MattressEventEngine`（线程安全由调用方负责）
+/// 设备模块入口 - 支持自动注册
+pub struct MattressModule;
+
+impl crate::ingest::adapters::DeviceModule for MattressModule {
+    fn metadata() -> crate::ingest::adapters::DeviceMetadata {
+        crate::ingest::adapters::DeviceMetadata {
+            device_type: "smart_mattress",
+            display_name: "智能床垫",
+            supported_data_types: &["smart_mattress", "mattress_event"],
+            protocol_version: "1.0",
+        }
+    }
+
+    fn create_adapter() -> Box<dyn crate::ingest::adapters::DeviceAdapter> {
+        Box::new(MattressAdapter::new())
+    }
+}

@@ -14,11 +14,10 @@ use sqlx::PgPool;
 use remipedia::api::routes;
 use remipedia::api::swagger_ui;
 use remipedia::config::Settings;
+use remipedia::ingest::DeviceManager;
 use remipedia::ingest::transport::mqtt::MqttTransport;
 use remipedia::ingest::transport::tcp::TcpTransport;
 use remipedia::ingest::transport::{TransportContext, TransportManager};
-use remipedia::ingest::AdapterManager;
-use remipedia::ingest::AdapterRegistry;
 use remipedia::repository::UserRepository;
 
 static MIGRATOR: sqlx::migrate::Migrator = sqlx::migrate!();
@@ -182,24 +181,25 @@ async fn main() -> anyhow::Result<()> {
     // 启动 TransportManager 并注册可用 transports
     {
         let mut manager_tm = TransportManager::new();
-        let registry = std::sync::Arc::new(AdapterRegistry::new());
-        let adapter_manager = AdapterManager::new(Arc::new(pool.clone()), registry.clone());
-        let ctx = TransportContext {
-            adapters: registry,
-            manager: adapter_manager.clone(),
-        };
+        
+        // 创建设备管理器
+        let device_manager = Arc::new(DeviceManager::new(Arc::new(pool.clone())));
+        let pool = Arc::new(pool.clone());
+        let device_manager_for_cleanup = device_manager.clone();  // 保留一份用于清理任务
+        
+        let ctx = TransportContext::new(device_manager, pool);
 
         // tcp transport (if enabled)
         if settings.tcp.enabled {
             let tcp_bind = format!("0.0.0.0:{}", settings.tcp.port);
-            let tcp_tr = std::sync::Arc::new(TcpTransport::new(tcp_bind));
+            let tcp_tr = Arc::new(TcpTransport::new(tcp_bind));
             manager_tm.register(tcp_tr);
         }
 
         // mqtt transport (if enabled)
         if settings.mqtt.enabled {
             let mqtt_cfg = settings.mqtt.clone();
-            let mqtt_tr = std::sync::Arc::new(MqttTransport::new(
+            let mqtt_tr = Arc::new(MqttTransport::new(
                 mqtt_cfg.broker.clone(),
                 mqtt_cfg.port,
                 mqtt_cfg.client_id.clone(),
@@ -214,6 +214,21 @@ async fn main() -> anyhow::Result<()> {
                 log::error!("transport manager failed: {}", e);
             }
         });
+        
+        // 启动 idle 设备清理任务 (每 5 分钟执行一次)
+        {
+            let device_manager = device_manager_for_cleanup;
+            tokio::spawn(async move {
+                let mut interval = tokio::time::interval(std::time::Duration::from_secs(300));
+                loop {
+                    interval.tick().await;
+                    let removed = device_manager.cleanup_idle().await;
+                    if removed > 0 {
+                        log::info!("定期清理: 移除了 {} 个空闲设备", removed);
+                    }
+                }
+            });
+        }
     }
 
     // 启动 HTTP 服务器

@@ -40,6 +40,9 @@ pub enum AppError {
     #[error("UUID 解析错误")]
     UuidError,
 
+    #[error("资源耗尽: {0}")]
+    ResourceExhausted(String),
+
     #[error("内部错误")]
     InternalError,
 }
@@ -65,6 +68,7 @@ impl<'r> Responder<'r, 'r> for AppError {
             AppError::UsernameExists => Status::Conflict,
             AppError::ConfigError(_) => Status::InternalServerError,
             AppError::UuidError => Status::BadRequest,
+            AppError::ResourceExhausted(_) => Status::ServiceUnavailable,
             AppError::DatabaseError(_) => Status::InternalServerError,
             AppError::InternalError => Status::InternalServerError,
         };

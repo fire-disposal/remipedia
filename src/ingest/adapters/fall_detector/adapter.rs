@@ -1,7 +1,9 @@
 //! 跌倒检测器适配器
 
 use crate::errors::{AppError, AppResult};
-use crate::ingest::adapters::adapter_trait::{AdapterOutput, DeviceAdapter, MessagePayload};
+use crate::ingest::adapters::adapter_trait::{
+    AdapterOutput, DeviceAdapter, DeviceMetadata, MessagePayload,
+};
 use chrono::Utc;
 
 use super::types::{FallDetectorData, FallDetectorMessage};
@@ -74,12 +76,25 @@ impl DeviceAdapter for FallDetectorAdapter {
         }
     }
 
+    fn metadata(&self) -> DeviceMetadata {
+        DeviceMetadata {
+            device_type: "fall_detector",
+            display_name: "跌倒检测器",
+            supported_data_types: &["fall_detector", "fall_event"],
+            protocol_version: "1.0",
+        }
+    }
+
     fn device_type(&self) -> &'static str {
         "fall_detector"
     }
 
     fn data_type(&self) -> &'static str {
         "fall_event"
+    }
+
+    fn clone_box(&self) -> Box<dyn crate::ingest::DeviceAdapter> {
+        Box::new(Self::new())
     }
 }
 

@@ -1,3 +1,5 @@
+//! TCP Transport - 简化版
+
 use anyhow::Result;
 use std::net::SocketAddr;
 use std::sync::Arc;
@@ -5,16 +7,19 @@ use tokio::io::AsyncReadExt;
 use tokio::net::{TcpListener, TcpStream};
 
 use crate::ingest::transport::{Transport, TransportContext};
-use crate::ingest::AdapterManager;
+use crate::core::value_object::DeviceType;
 
-/// TCP Transport: 监听原始设备连接并把原始包交给 `AdapterManager` 的 worker
 pub struct TcpTransport {
     pub bind: String,
+    pub default_device_type: &'static str,
 }
 
 impl TcpTransport {
     pub fn new(bind: String) -> Self {
-        Self { bind }
+        Self { 
+            bind, 
+            default_device_type: "smart_mattress" 
+        }
     }
 }
 
@@ -25,12 +30,16 @@ impl Transport for TcpTransport {
         let listener = TcpListener::bind(addr).await?;
         log::info!("tcp transport listening on {}", self.bind);
 
+        let default_type = self.default_device_type;
+        let device_manager = ctx.device_manager.clone();
+
         loop {
             let (stream, addr) = listener.accept().await?;
-            let manager = ctx.manager.clone();
+            let device_manager = device_manager.clone();
+            let default_type = default_type;
 
             tokio::spawn(async move {
-                if let Err(e) = handle_connection(stream, manager).await {
+                if let Err(e) = handle_connection(stream, device_manager, default_type).await {
                     log::error!("tcp connection error {}: {}", addr, e);
                 }
             });
@@ -42,31 +51,41 @@ impl Transport for TcpTransport {
     }
 }
 
-async fn handle_connection(mut stream: TcpStream, manager: Arc<AdapterManager>) -> Result<()> {
+async fn handle_connection(
+    mut stream: TcpStream,
+    device_manager: Arc<crate::ingest::DeviceManager>,
+    default_type: &str,
+) -> Result<()> {
     let mut buffer = vec![0u8; 4096];
-    let mut remaining_data = Vec::new();
+    let mut remaining = Vec::new();
 
     loop {
         match stream.read(&mut buffer).await {
             Ok(0) => break,
             Ok(n) => {
-                remaining_data.extend_from_slice(&buffer[..n]);
-                // extract packets similar to previous TcpServer.extract_packet
-                while let Some(packet) = extract_packet(&mut remaining_data)? {
-                    // parse serial number and device_type is still needed here
-                    match dispatch_packet(&manager, packet).await {
-                        Ok(_) => {}
-                        Err(e) => log::error!("dispatch packet error: {}", e),
+                remaining.extend_from_slice(&buffer[..n]);
+                while let Some(packet) = extract_packet(&mut remaining)? {
+                    if let Ok(serial) = extract_serial(&packet) {
+                        let device_manager = device_manager.clone();
+                        let device_type = default_type.to_string();
+                        
+                        tokio::spawn(async move {
+                            if let Err(e) = process_packet(&device_manager, &serial, &device_type, packet).await {
+                                log::error!("process error: {}", e);
+                            }
+                        });
                     }
                 }
             }
-            Err(e) => {
-                return Err(anyhow::anyhow!(e));
-            }
+            Err(e) => return Err(anyhow::anyhow!(e)),
         }
     }
-
     Ok(())
+}
+
+fn extract_serial(packet: &[u8]) -> Result<String, anyhow::Error> {
+    crate::ingest::adapters::mattress::MattressAdapter::extract_serial_number(packet)
+        .map_err(|e| anyhow::anyhow!(e))
 }
 
 fn extract_packet(buffer: &mut Vec<u8>) -> Result<Option<Vec<u8>>, anyhow::Error> {
@@ -74,7 +93,7 @@ fn extract_packet(buffer: &mut Vec<u8>) -> Result<Option<Vec<u8>>, anyhow::Error
         return Ok(None);
     }
     if buffer[0] != 0xab || buffer[1] != 0xcd {
-        for i in 1..buffer.len() - 1 {
+        for i in 1..buffer.len().saturating_sub(1) {
             if buffer[i] == 0xab && buffer[i + 1] == 0xcd {
                 buffer.drain(..i);
                 return extract_packet(buffer);
@@ -93,17 +112,18 @@ fn extract_packet(buffer: &mut Vec<u8>) -> Result<Option<Vec<u8>>, anyhow::Error
     Ok(Some(packet))
 }
 
-async fn dispatch_packet(
-    manager: &Arc<AdapterManager>,
+async fn process_packet(
+    device_manager: &Arc<crate::ingest::DeviceManager>,
+    serial: &str,
+    device_type: &str,
     packet: Vec<u8>,
 ) -> Result<(), anyhow::Error> {
-    let serial_number =
-        crate::ingest::adapters::mattress::MattressAdapter::extract_serial_number(&packet)
-            .map_err(|e| anyhow::anyhow!(e.to_string()))?;
+    let device_type = DeviceType::from_str(device_type)
+        .ok_or_else(|| anyhow::anyhow!("未知设备类型"))?;
+    
+    device_manager
+        .process(serial, device_type, packet, "tcp")
+        .await?;
 
-    manager
-        .dispatch_by_serial(&serial_number, "smart_mattress", packet, "tcp")
-        .await
-        .map_err(|e| anyhow::anyhow!(e))?;
     Ok(())
 }

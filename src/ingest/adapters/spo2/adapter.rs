@@ -1,7 +1,9 @@
 //! 血氧传感器适配器
 
 use crate::errors::{AppError, AppResult};
-use crate::ingest::adapters::adapter_trait::{AdapterOutput, DeviceAdapter, MessagePayload};
+use crate::ingest::adapters::adapter_trait::{
+    AdapterOutput, DeviceAdapter, DeviceMetadata, MessagePayload,
+};
 use chrono::Utc;
 
 use super::types::SpO2Data;
@@ -77,11 +79,24 @@ impl DeviceAdapter for SpO2Adapter {
         Ok(())
     }
 
+    fn metadata(&self) -> DeviceMetadata {
+        DeviceMetadata {
+            device_type: "spo2_sensor",
+            display_name: "血氧传感器",
+            supported_data_types: &["spo2"],
+            protocol_version: "1.0",
+        }
+    }
+
     fn device_type(&self) -> &'static str {
         "spo2"
     }
 
     fn data_type(&self) -> &'static str {
         "spo2"
+    }
+
+    fn clone_box(&self) -> Box<dyn crate::ingest::DeviceAdapter> {
+        Box::new(Self::new())
     }
 }

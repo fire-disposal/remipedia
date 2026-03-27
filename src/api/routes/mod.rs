@@ -2,6 +2,7 @@ pub mod auth;
 pub mod binding;
 pub mod data;
 pub mod device;
+pub mod device_manage;
 pub mod health;
 pub mod patient;
 pub mod user;
@@ -22,6 +23,7 @@ pub fn routes() -> Vec<Route> {
     all_routes.extend(device::routes());
     all_routes.extend(binding::routes());
     all_routes.extend(data::routes());
+    all_routes.extend(device_manage::routes());
     // 添加 OPTIONS 预检路由
     all_routes.extend(routes![options_preflight]);
     // health routes mounted separately at root

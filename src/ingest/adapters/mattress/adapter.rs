@@ -382,11 +382,24 @@ impl DeviceAdapter for MattressAdapter {
         Ok(())
     }
 
+    fn metadata(&self) -> crate::ingest::adapters::DeviceMetadata {
+        crate::ingest::adapters::DeviceMetadata {
+            device_type: "smart_mattress",
+            display_name: "智能床垫",
+            supported_data_types: &["smart_mattress", "mattress_event"],
+            protocol_version: "1.0",
+        }
+    }
+
     fn device_type(&self) -> &'static str {
         "smart_mattress"
     }
 
     fn data_type(&self) -> &'static str {
         "smart_mattress"
+    }
+
+    fn clone_box(&self) -> Box<dyn crate::ingest::DeviceAdapter> {
+        Box::new(Self::new())
     }
 }

@@ -1,55 +1,60 @@
+//! 设备适配器接口
+//!
+//! 定义所有设备适配器必须实现的 trait
+
 use crate::errors::AppResult;
 use chrono::{DateTime, Utc};
-use serde_json::{Map, Value};
+use serde_json::Value;
 
-/// 设备适配器 trait - 所有设备类型必须实现
-///
-/// 简化输出模型：所有适配器统一返回一组扁平的 `MessagePayload`，
-/// 事件与时序都视为同一种“消息”，通过 `message_type` / `severity` 字段区分。
-pub trait DeviceAdapter: Send + Sync {
-    /// 解析原始数据为领域输出（扁平消息列表）
-    fn parse(&self, raw: &[u8]) -> AppResult<AdapterOutput>;
-
-    /// 验证解析后的领域输出
-    fn validate(&self, output: &AdapterOutput) -> AppResult<()>;
-
-    /// 获取设备类型标识
-    fn device_type(&self) -> &'static str;
-    /// 获取数据类型标识（与旧接口兼容）
-    fn data_type(&self) -> &'static str;
+/// 设备元信息
+#[derive(Debug, Clone)]
+pub struct DeviceMetadata {
+    /// 设备类型标识
+    pub device_type: &'static str,
+    /// 设备类型显示名称
+    pub display_name: &'static str,
+    /// 支持的数据类型
+    pub supported_data_types: &'static [&'static str],
+    /// 协议版本
+    pub protocol_version: &'static str,
 }
 
 /// 统一扁平消息负载
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct MessagePayload {
-    /// 事件或测量发生时间（对应 `datasheet.time`）
+    /// 事件或测量发生时间
     pub time: DateTime<Utc>,
-    /// 数据类型（对应 `datasheet.data_type`）
+    /// 数据类型
     pub data_type: String,
-    /// 可选的更细分类型，例如事件名（如 "fall"、"alarm"），或测量子类型
+    /// 更细分类型
     pub message_type: Option<String>,
-    /// 可选的重要/紧急等级（由适配器决定是否填充）
+    /// 重要等级
     pub severity: Option<String>,
-    /// 具体内部载荷，自由结构，写入 `datasheet.payload`
+    /// 具体负载
     pub payload: Value,
 }
 
-/// 适配器输出：一组扁平消息
+/// 适配器输出
 #[derive(Debug)]
 pub enum AdapterOutput {
     Messages(Vec<MessagePayload>),
 }
 
 impl AdapterOutput {
-    /// 将 AdapterOutput 转换为 JSON 数组，数组中每项为扁平对象，包含 time/data_type/severity/message_type/payload
-    /// 该方法仅用于在 DB 边界以 JSON 形式传输或调试，入库时应使用结构化字段插入（time 与 data_type 对应表列）
+    pub fn into_messages(self) -> Vec<MessagePayload> {
+        match self {
+            AdapterOutput::Messages(msgs) => msgs,
+        }
+    }
+
+    /// 转换为 JSON 数组
     pub fn to_json(&self) -> Value {
         match self {
             AdapterOutput::Messages(msgs) => {
                 let arr: Vec<Value> = msgs
                     .iter()
                     .map(|m| {
-                        let mut map = Map::new();
+                        let mut map = serde_json::Map::new();
                         map.insert("time".to_string(), Value::String(m.time.to_rfc3339()));
                         map.insert("data_type".to_string(), Value::String(m.data_type.clone()));
                         if let Some(mt) = &m.message_type {
@@ -66,4 +71,45 @@ impl AdapterOutput {
             }
         }
     }
+}
+
+/// 设备适配器 trait - 所有设备类型必须实现
+///
+/// 设计原则：
+/// - 每个设备模块实现此 trait
+/// - 提供静态元信息
+/// - 支持独立状态
+pub trait DeviceAdapter: Send + Sync + 'static {
+    /// 获取设备元信息
+    fn metadata(&self) -> DeviceMetadata;
+
+    /// 解析原始数据为领域输出
+    fn parse(&self, raw: &[u8]) -> AppResult<AdapterOutput>;
+
+    /// 验证解析后的输出
+    fn validate(&self, output: &AdapterOutput) -> AppResult<()>;
+
+    /// 克隆适配器
+    fn clone_box(&self) -> Box<dyn DeviceAdapter>;
+
+    /// 获取设备类型
+    fn device_type(&self) -> &'static str {
+        self.metadata().device_type
+    }
+
+    /// 获取数据类型
+    fn data_type(&self) -> &'static str {
+        self.metadata().device_type
+    }
+}
+
+/// 设备模块入口 trait
+///
+/// 每个设备模块实现此 trait 以支持自动注册
+pub trait DeviceModule: Send + Sync + 'static {
+    /// 设备元信息
+    fn metadata() -> DeviceMetadata;
+
+    /// 创建适配器实例
+    fn create_adapter() -> Box<dyn DeviceAdapter>;
 }

@@ -1,36 +1,45 @@
-use anyhow::Result;
-use async_trait::async_trait;
-use std::sync::Arc;
+//! Transport 模块 - 简化版
+//! 
+//! 直接使用 DeviceManager，无需复杂抽象
 
 pub mod mqtt;
 pub mod tcp;
 
-/// 统一 Transport trait：负责接收外部连接并把原始帧交给适配器/管道
+use anyhow::Result;
+use async_trait::async_trait;
+use std::sync::Arc;
+use sqlx::PgPool;
+
+use crate::ingest::DeviceManager;
+
+/// Transport trait
 #[async_trait]
 pub trait Transport: Send + Sync {
     async fn start(&self, ctx: TransportContext) -> Result<()>;
-    async fn stop(&self) -> Result<()> {
-        Ok(())
+    async fn stop(&self) -> Result<()>;
+}
+
+/// Transport 上下文
+#[derive(Clone)]
+pub struct TransportContext {
+    pub device_manager: Arc<DeviceManager>,
+    pub pool: Arc<PgPool>,
+}
+
+impl TransportContext {
+    pub fn new(device_manager: Arc<DeviceManager>, pool: Arc<PgPool>) -> Self {
+        Self { device_manager, pool }
     }
 }
 
-/// 传输运行时上下文，提供访问适配器注册表等资源
-#[derive(Clone)]
-pub struct TransportContext {
-    pub adapters: Arc<crate::ingest::AdapterRegistry>,
-    pub manager: Arc<crate::ingest::AdapterManager>,
-}
-
-/// 简单管理器：按次序启动所有 transport（以非阻塞方式 spawn）
+/// Transport 管理器
 pub struct TransportManager {
     transports: Vec<Arc<dyn Transport>>,
 }
 
 impl TransportManager {
     pub fn new() -> Self {
-        Self {
-            transports: Vec::new(),
-        }
+        Self { transports: Vec::new() }
     }
 
     pub fn register<T: Transport + 'static>(&mut self, t: Arc<T>) {
@@ -48,5 +57,18 @@ impl TransportManager {
             });
         }
         Ok(())
+    }
+
+    pub async fn stop_all(&self) -> Result<()> {
+        for t in &self.transports {
+            t.stop().await?;
+        }
+        Ok(())
+    }
+}
+
+impl Default for TransportManager {
+    fn default() -> Self {
+        Self::new()
     }
 }

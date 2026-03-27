@@ -1,6 +1,13 @@
-pub mod adapter_manager;
-pub mod adapters;
+//! Remipedia 数据接入层
+//! 
+//! 简化设计：扁平化架构
 
-pub use adapter_manager::*;
+pub mod adapters;
+pub mod device_manager;
+
 pub use adapters::*;
-pub mod transport; // Expose ingest transport module for unified transport management
+pub use device_manager::*;
+
+// 导出 transport
+pub mod transport;
+pub use transport::*;

@@ -4,8 +4,8 @@ use std::sync::Arc;
 use tokio::io::AsyncReadExt;
 use tokio::net::{TcpListener, TcpStream};
 
-use crate::ingest::adapters::mattress::decoder::decode_buffer;
 use crate::ingest::adapters::mattress::adapter::MattressAdapter;
+use crate::ingest::adapters::mattress::decoder::decode_buffer;
 use crate::ingest::adapters::DeviceAdapter;
 use crate::ingest::transport::{Transport, TransportContext};
 
@@ -39,7 +39,9 @@ impl Transport for MattressTransport {
         }
     }
 
-    async fn stop(&self) -> Result<()> { Ok(()) }
+    async fn stop(&self) -> Result<()> {
+        Ok(())
+    }
 }
 
 async fn handle_socket(socket: &mut TcpStream, adapter: Arc<MattressAdapter>) -> Result<()> {
@@ -65,7 +67,10 @@ async fn handle_socket(socket: &mut TcpStream, adapter: Arc<MattressAdapter>) ->
                         match adapter_clone.parse(&raw_frame) {
                             Ok(output) => {
                                 // 目前简单记录输出，后续可接入事件总线/持久化/通知
-                                log::debug!("adapter produced output: {:?}", format!("{:?}", output));
+                                log::debug!(
+                                    "adapter produced output: {:?}",
+                                    format!("{:?}", output)
+                                );
                             }
                             Err(e) => {
                                 log::warn!("adapter parse error: {:?}", e);

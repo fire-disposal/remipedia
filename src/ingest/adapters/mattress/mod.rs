@@ -3,9 +3,9 @@
 //! 提供事件驱动原生架构的智能床垫数据处理功能
 
 mod adapter;
+mod decoder;
 mod event_engine;
 pub mod transport;
-mod decoder;
 mod types;
 
 // 公开主要类型

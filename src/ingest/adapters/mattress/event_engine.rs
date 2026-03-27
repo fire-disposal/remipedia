@@ -66,11 +66,21 @@ impl MattressEventEngine {
         sampling_config: SmartSamplingConfig,
         vital_signs_config: VitalSignsConfig,
     ) -> Self {
-        Self { sampling_config, vital_signs_config, bed_entry_threshold: 15, bed_exit_threshold: 10, movement_score_threshold: 3.0 }
+        Self {
+            sampling_config,
+            vital_signs_config,
+            bed_entry_threshold: 15,
+            bed_exit_threshold: 10,
+            movement_score_threshold: 3.0,
+        }
     }
 
     /// 处理床垫数据：纯函数式接口，接收 `DeviceState` 的可变引用以更新状态并返回事件列表
-    pub fn process(&self, state: &mut DeviceState, data: &MattressData) -> AppResult<Vec<MattressEvent>> {
+    pub fn process(
+        &self,
+        state: &mut DeviceState,
+        data: &MattressData,
+    ) -> AppResult<Vec<MattressEvent>> {
         let mut events = Vec::new();
         let timestamp = Utc::now();
 
@@ -502,15 +512,12 @@ impl MattressEventEngine {
         let alert_level = self.assess_current_alert_level();
 
         match alert_level {
-            AlertLevel::Normal => {
-                self.check_time_interval_minutes(state, self.sampling_config.normal_interval_minutes)
-            }
-            AlertLevel::Warning => {
-                self.check_time_interval_minutes(state, self.sampling_config.warning_interval_minutes)
-            }
-            AlertLevel::Critical => {
-                self.check_time_interval_seconds(state, self.sampling_config.critical_interval_seconds)
-            }
+            AlertLevel::Normal => self
+                .check_time_interval_minutes(state, self.sampling_config.normal_interval_minutes),
+            AlertLevel::Warning => self
+                .check_time_interval_minutes(state, self.sampling_config.warning_interval_minutes),
+            AlertLevel::Critical => self
+                .check_time_interval_seconds(state, self.sampling_config.critical_interval_seconds),
         }
     }
 
@@ -556,7 +563,11 @@ impl MattressEventEngine {
         }
     }
 
-    fn should_sample_scheduled_measurement(&self, state: &DeviceState, timestamp: DateTime<Utc>) -> bool {
+    fn should_sample_scheduled_measurement(
+        &self,
+        state: &DeviceState,
+        timestamp: DateTime<Utc>,
+    ) -> bool {
         if let Some(last_measurement) = state.last_scheduled_measurement {
             let elapsed = timestamp.signed_duration_since(last_measurement);
             elapsed.num_minutes() >= self.sampling_config.normal_interval_minutes as i64

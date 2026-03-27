@@ -4,8 +4,8 @@ use std::sync::Arc;
 use tokio::io::AsyncReadExt;
 use tokio::net::{TcpListener, TcpStream};
 
-use crate::ingest::AdapterManager;
 use crate::ingest::transport::{Transport, TransportContext};
+use crate::ingest::AdapterManager;
 
 /// TCP Transport: 监听原始设备连接并把原始包交给 `AdapterManager` 的 worker
 pub struct TcpTransport {
@@ -37,13 +37,12 @@ impl Transport for TcpTransport {
         }
     }
 
-    async fn stop(&self) -> Result<()> { Ok(()) }
+    async fn stop(&self) -> Result<()> {
+        Ok(())
+    }
 }
 
-async fn handle_connection(
-    mut stream: TcpStream,
-    manager: Arc<AdapterManager>,
-) -> Result<()> {
+async fn handle_connection(mut stream: TcpStream, manager: Arc<AdapterManager>) -> Result<()> {
     let mut buffer = vec![0u8; 4096];
     let mut remaining_data = Vec::new();
 
@@ -98,28 +97,12 @@ async fn dispatch_packet(
     manager: &Arc<AdapterManager>,
     packet: Vec<u8>,
 ) -> Result<(), anyhow::Error> {
-    // Use mattress adapter type for TCP packets
-    // parse serial_number using existing adapter parse path: to avoid duplicating parse logic,
-    // we create a temporary adapter instance and call parse then extract serial_number
-    let adapter_registry = crate::ingest::adapters::AdapterRegistry::new();
-    let adapter = adapter_registry
-        .get(&crate::core::value_object::DeviceType::SmartMattress)
-        .ok_or_else(|| anyhow::anyhow!("no mattress adapter"))?;
-
-    // parse to get payload and serial
-    let packet_for_parse = packet.clone();
-    let parse_result = tokio::task::spawn_blocking(move || adapter.parse(&packet_for_parse)).await?;
-    let output = parse_result.map_err(|e| anyhow::anyhow!(e))?;
-
-    // extract serial number from first message payload
-    let msgs = match output {
-        crate::ingest::adapters::AdapterOutput::Messages(v) => v,
-    };
-    let first = msgs.get(0).ok_or_else(|| anyhow::anyhow!("adapter returned no messages"))?;
-    let serial_number = first.payload["serial_number"].as_str().ok_or_else(|| anyhow::anyhow!("missing serial"))?;
+    let serial_number =
+        crate::ingest::adapters::mattress::MattressAdapter::extract_serial_number(&packet)
+            .map_err(|e| anyhow::anyhow!(e.to_string()))?;
 
     manager
-        .dispatch_by_serial(serial_number, "smart_mattress", packet, "tcp")
+        .dispatch_by_serial(&serial_number, "smart_mattress", packet, "tcp")
         .await
         .map_err(|e| anyhow::anyhow!(e))?;
     Ok(())

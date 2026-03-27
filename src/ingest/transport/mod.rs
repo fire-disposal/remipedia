@@ -9,7 +9,9 @@ pub mod tcp;
 #[async_trait]
 pub trait Transport: Send + Sync {
     async fn start(&self, ctx: TransportContext) -> Result<()>;
-    async fn stop(&self) -> Result<()> { Ok(()) }
+    async fn stop(&self) -> Result<()> {
+        Ok(())
+    }
 }
 
 /// 传输运行时上下文，提供访问适配器注册表等资源
@@ -26,7 +28,9 @@ pub struct TransportManager {
 
 impl TransportManager {
     pub fn new() -> Self {
-        Self { transports: Vec::new() }
+        Self {
+            transports: Vec::new(),
+        }
     }
 
     pub fn register<T: Transport + 'static>(&mut self, t: Arc<T>) {

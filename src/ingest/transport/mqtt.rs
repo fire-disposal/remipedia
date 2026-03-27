@@ -2,8 +2,8 @@ use anyhow::Result;
 use rumqttc::{AsyncClient, Event, Incoming, MqttOptions};
 use std::sync::Arc;
 
-use crate::ingest::AdapterManager;
 use crate::ingest::transport::{Transport, TransportContext};
+use crate::ingest::AdapterManager;
 
 pub struct MqttTransport {
     pub broker: String,
@@ -14,7 +14,12 @@ pub struct MqttTransport {
 
 impl MqttTransport {
     pub fn new(broker: String, port: u16, client_id: String, topic_prefix: String) -> Self {
-        Self { broker, port, client_id, topic_prefix }
+        Self {
+            broker,
+            port,
+            client_id,
+            topic_prefix,
+        }
     }
 }
 
@@ -32,7 +37,14 @@ impl Transport for MqttTransport {
             while let Ok(notification) = eventloop.poll().await {
                 if let Event::Incoming(Incoming::Publish(publish)) = notification {
                     // handle message: parse topic and dispatch to adapter manager
-                    if let Err(e) = handle_message(&topic_prefix, &ctx.manager, &publish.topic, &publish.payload).await {
+                    if let Err(e) = handle_message(
+                        &topic_prefix,
+                        &ctx.manager,
+                        &publish.topic,
+                        &publish.payload,
+                    )
+                    .await
+                    {
                         log::error!("mqtt handle message error: {}", e);
                     }
                 }
@@ -43,7 +55,9 @@ impl Transport for MqttTransport {
         Ok(())
     }
 
-    async fn stop(&self) -> Result<()> { Ok(()) }
+    async fn stop(&self) -> Result<()> {
+        Ok(())
+    }
 }
 
 async fn handle_message(
@@ -69,8 +83,13 @@ async fn handle_message(
     // parse message
     let msg: serde_json::Value = serde_json::from_slice(payload).map_err(|e| anyhow::anyhow!(e))?;
 
-    let device_type = if topic_type == "event" { "fall_detector".to_string() } else {
-        msg["device_type"].as_str().ok_or_else(|| anyhow::anyhow!("missing device_type"))?.to_string()
+    let device_type = if topic_type == "event" {
+        "fall_detector".to_string()
+    } else {
+        msg["device_type"]
+            .as_str()
+            .ok_or_else(|| anyhow::anyhow!("missing device_type"))?
+            .to_string()
     };
 
     manager

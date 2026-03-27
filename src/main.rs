@@ -140,11 +140,11 @@ async fn run_migrations(pool: &PgPool) -> anyhow::Result<()> {
 }
 
 /// 创建 Rocket 应用
-async fn build_rocket(settings: &Settings, pool: PgPool) -> Rocket<Build> {
+async fn build_rocket(settings: &Settings, pool: PgPool, device_manager: Arc<DeviceManager>) -> Rocket<Build> {
     // 创建适配器注册表
     let mut registry = AdapterRegistry::new();
     
-    // 注册床垫适配器
+    // 注册床垫适接器
     registry.register(Arc::new(remipedia::ingest::adapters::mattress::MattressAdapter::new()));
     
     let registry = Arc::new(registry);
@@ -154,6 +154,7 @@ async fn build_rocket(settings: &Settings, pool: PgPool) -> Rocket<Build> {
         .manage(settings.jwt.clone())
         .manage(settings.mqtt.clone())
         .manage(registry)
+        .manage(device_manager)
         .attach(Cors)
         .mount("/", remipedia::api::routes::health::routes())
         .mount("/api/v1", routes())
@@ -188,16 +189,17 @@ async fn main() -> anyhow::Result<()> {
     // 初始化管理员账户
     init_admin(&pool).await?;
 
+    // 创建共享的设备管理器
+    let device_manager = Arc::new(DeviceManager::new(Arc::new(pool.clone())));
+
     // 启动 TransportManager 并注册可用 transports
     {
         let mut manager_tm = TransportManager::new();
         
-        // 创建设备管理器
-        let device_manager = Arc::new(DeviceManager::new(Arc::new(pool.clone())));
         let pool = Arc::new(pool.clone());
-        let device_manager_for_cleanup = device_manager.clone();  // 保留一份用于清理任务
+        let device_manager_for_tm = device_manager.clone();
         
-        let ctx = TransportContext::new(device_manager, pool);
+        let ctx = TransportContext::new(device_manager_for_tm, pool);
 
         // tcp transport (if enabled)
         if settings.tcp.enabled {
@@ -226,23 +228,21 @@ async fn main() -> anyhow::Result<()> {
         });
         
         // 启动 idle 设备清理任务 (每 5 分钟执行一次)
-        {
-            let device_manager = device_manager_for_cleanup;
-            tokio::spawn(async move {
-                let mut interval = tokio::time::interval(std::time::Duration::from_secs(300));
-                loop {
-                    interval.tick().await;
-                    let removed = device_manager.cleanup_idle().await;
-                    if removed > 0 {
-                        log::info!("定期清理: 移除了 {} 个空闲设备", removed);
-                    }
+        let device_manager_for_cleanup = device_manager.clone();
+        tokio::spawn(async move {
+            let mut interval = tokio::time::interval(std::time::Duration::from_secs(300));
+            loop {
+                interval.tick().await;
+                let removed = device_manager_for_cleanup.cleanup_idle().await;
+                if removed > 0 {
+                    log::info!("定期清理: 移除了 {} 个空闲设备", removed);
                 }
-            });
-        }
+            }
+        });
     }
 
     // 启动 HTTP 服务器
-    let rocket = build_rocket(&settings, pool).await;
+    let rocket = build_rocket(&settings, pool, device_manager.clone()).await;
 
     info!(
         "🌐 HTTP 服务器启动于 {}:{}",

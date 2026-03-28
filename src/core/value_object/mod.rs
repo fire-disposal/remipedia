@@ -50,6 +50,10 @@ impl DeviceStatus {
     pub fn can_transition_to(&self, new: Self) -> bool {
         !matches!((*self, new), (Self::Maintenance, Self::Inactive))
     }
+
+    pub fn is_active(&self) -> bool {
+        matches!(self, Self::Active)
+    }
 }
 
 impl Default for DeviceStatus {

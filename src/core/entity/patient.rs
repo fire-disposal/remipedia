@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
 use uuid::Uuid;
 
-/// 患者实体（极简版）
+/// 患者实体
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
 pub struct Patient {
     pub id: Uuid,

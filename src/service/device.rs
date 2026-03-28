@@ -5,6 +5,7 @@ use uuid::Uuid;
 use crate::core::entity::NewDevice;
 use crate::core::value_object::DeviceType;
 use crate::dto::request::{DeviceQuery, RegisterDeviceRequest, UpdateDeviceRequest};
+use crate::api::routes::device::DeviceStatsResponse;
 use crate::dto::response::{BindingInfo, DeviceListResponse, DeviceResponse, Pagination};
 use crate::errors::{AppError, AppResult};
 use crate::repository::{BindingRepository, DeviceRepository};
@@ -219,6 +220,21 @@ impl<'a> DeviceService<'a> {
         self.device_repo.delete(id).await?;
         info!("设备删除成功: device_id={}", id);
         Ok(())
+    }
+
+    /// 获取设备统计
+    pub async fn get_stats(&self) -> AppResult<DeviceStatsResponse> {
+        let total = self.device_repo.count(None, None, None).await?;
+        let active = self.device_repo.count(None, Some("active"), None).await?;
+        let inactive = self.device_repo.count(None, Some("inactive"), None).await?;
+        
+        Ok(DeviceStatsResponse {
+            total,
+            active,
+            inactive,
+            online: 0,
+            offline: 0,
+        })
     }
 }
 

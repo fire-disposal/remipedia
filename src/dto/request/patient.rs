@@ -10,6 +10,8 @@ pub struct CreatePatientRequest {
     pub name: String,
     /// 外部ID
     pub external_id: Option<String>,
+    /// 档案信息（可选，创建时一起创建）
+    pub profile: Option<CreatePatientProfileRequest>,
 }
 
 /// 更新患者请求
@@ -21,7 +23,7 @@ pub struct UpdatePatientRequest {
     pub external_id: Option<String>,
 }
 
-/// 创建患者档案请求
+/// 患者档案请求（用于创建和更新）
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct CreatePatientProfileRequest {
     /// 出生日期
@@ -55,7 +57,7 @@ pub struct CreatePatientProfileRequest {
 /// 患者查询参数
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct PatientQuery {
-    /// 姓名筛选
+    /// 姓名筛选（模糊匹配）
     pub name: Option<String>,
     /// 外部ID筛选
     pub external_id: Option<String>,

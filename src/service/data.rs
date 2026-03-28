@@ -108,6 +108,13 @@ impl<'a> DataService<'a> {
             .await?;
         Ok(data.into_iter().map(|d| d.into()).collect())
     }
+
+    /// 删除数据
+    pub async fn delete(&self, id: &Uuid) -> AppResult<()> {
+        self.data_repo.delete(id).await?;
+        info!("数据删除成功: id={}", id);
+        Ok(())
+    }
 }
 
 // 实体到响应的转换

@@ -68,6 +68,12 @@ impl<'a> BindingService<'a> {
         Ok(())
     }
 
+    /// 获取单个绑定
+    pub async fn get_by_id(&self, binding_id: &Uuid) -> AppResult<BindingResponse> {
+        let binding = self.binding_repo.find_by_id(binding_id).await?;
+        Ok(binding.into())
+    }
+
     /// 获取设备当前绑定的患者 ID
     pub async fn get_current_binding_subject(&self, device_id: &Uuid) -> AppResult<Option<Uuid>> {
         let binding = self.binding_repo.find_active_by_device(device_id).await?;

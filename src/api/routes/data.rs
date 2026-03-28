@@ -1,6 +1,6 @@
 use rocket::serde::json::Json;
 use rocket::State;
-use rocket::{get, post};
+use rocket::{delete, get, post};
 use sqlx::PgPool;
 use utoipa::OpenApi;
 use uuid::Uuid;
@@ -8,7 +8,7 @@ use uuid::Uuid;
 use crate::api::guards::AuthenticatedUser;
 use crate::dto::request::DataReportRequest;
 use crate::dto::response::{DataQueryResponse, DataReportResponse};
-use crate::errors::AppResult;
+use crate::errors::{AppError, AppResult};
 use crate::service::DataService;
 
 /// 数据上报
@@ -94,9 +94,37 @@ pub async fn query_data(
 }
 
 pub fn routes() -> Vec<rocket::Route> {
-    rocket::routes![report_data, query_data]
+    rocket::routes![report_data, query_data, delete_data]
+}
+
+/// 删除数据
+#[utoipa::path(
+    delete,
+    path = "/data/{id}",
+    tag = "data",
+    security(
+        ("bearer_auth" = [])
+    ),
+    params(
+        ("id" = String, Path, description = "数据ID")
+    ),
+    responses(
+        (status = 200, description = "删除成功"),
+        (status = 404, description = "数据不存在"),
+    )
+)]
+#[delete("/data/<id>")]
+pub async fn delete_data(
+    pool: &State<PgPool>,
+    _user: AuthenticatedUser,
+    id: &str,
+) -> AppResult<Json<serde_json::Value>> {
+    let id = Uuid::parse_str(id).map_err(|_| AppError::ValidationError("无效的数据 ID".into()))?;
+    let service = DataService::new(pool);
+    service.delete(&id).await?;
+    Ok(Json(serde_json::json!({ "success": true })))
 }
 
 #[derive(OpenApi)]
-#[openapi(paths(report_data, query_data))]
+#[openapi(paths(report_data, query_data, delete_data))]
 pub struct DataApiDoc;

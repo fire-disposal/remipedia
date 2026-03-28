@@ -12,6 +12,34 @@ use crate::dto::response::BindingResponse;
 use crate::errors::{AppError, AppResult};
 use crate::service::BindingService;
 
+/// 获取单个绑定
+#[utoipa::path(
+    get,
+    path = "/bindings/{id}",
+    tag = "bindings",
+    security(
+        ("bearer_auth" = [])
+    ),
+    params(
+        ("id" = String, Path, description = "绑定ID")
+    ),
+    responses(
+        (status = 200, description = "获取成功", body = BindingResponse),
+        (status = 404, description = "绑定不存在"),
+    )
+)]
+#[get("/bindings/<id>")]
+pub async fn get_binding(
+    pool: &State<PgPool>,
+    _user: AuthenticatedUser,
+    id: &str,
+) -> AppResult<Json<BindingResponse>> {
+    let id = Uuid::parse_str(id).map_err(|_| AppError::ValidationError("无效的绑定 ID".into()))?;
+    let service = BindingService::new(pool);
+    let response = service.get_by_id(&id).await?;
+    Ok(Json(response))
+}
+
 /// 查询绑定列表
 #[utoipa::path(
     get,
@@ -112,9 +140,9 @@ pub async fn delete_binding(
 }
 
 pub fn routes() -> Vec<rocket::Route> {
-    rocket::routes![list_bindings, create_binding, delete_binding]
+    rocket::routes![list_bindings, create_binding, delete_binding, get_binding]
 }
 
 #[derive(OpenApi)]
-#[openapi(paths(list_bindings, create_binding, delete_binding))]
+#[openapi(paths(list_bindings, create_binding, delete_binding, get_binding))]
 pub struct BindingApiDoc;

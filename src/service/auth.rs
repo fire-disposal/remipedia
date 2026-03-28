@@ -13,8 +13,8 @@ use crate::config::JwtConfig;
 use crate::core::auth::Claims;
 use crate::core::entity::NewRefreshToken;
 use crate::core::value_object::UserRole;
-use crate::dto::request::{ChangePasswordRequest, LoginRequest, RefreshTokenRequest};
-use crate::dto::response::{LoginResponse, RefreshTokenResponse, UserInfo};
+use crate::dto::request::{ChangePasswordRequest, LoginRequest, RefreshTokenRequest, VerifyTokenRequest};
+use crate::dto::response::{LoginResponse, RefreshTokenResponse, UserInfo, VerifyTokenResponse};
 use crate::errors::{AppError, AppResult};
 use crate::repository::{RefreshTokenRepository, UserRepository};
 
@@ -116,6 +116,10 @@ impl<'a> AuthService<'a> {
                 id: user.id.to_string(),
                 username: user.username,
                 role: user.role,
+                email: user.email,
+                status: user.status,
+                created_at: user.created_at,
+                last_login_at: user.last_login_at,
             },
             expires_at,
         })
@@ -197,6 +201,53 @@ impl<'a> AuthService<'a> {
         self.refresh_token_repo.revoke(&token_hash).await?;
         Ok(())
     }
+
+    /// 获取当前用户信息
+    pub async fn get_me(&self, user_id: &Uuid) -> AppResult<UserInfo> {
+        let user = self.user_repo.find_by_id(user_id).await?;
+        Ok(UserInfo {
+            id: user.id.to_string(),
+            username: user.username,
+            role: user.role,
+            email: user.email,
+            status: user.status,
+            created_at: user.created_at,
+            last_login_at: user.last_login_at,
+        })
+    }
+
+    /// 验证 Token 有效性
+    pub async fn verify_token(&self, req: VerifyTokenRequest) -> AppResult<VerifyTokenResponse> {
+        match JwtVerifier::new(self.jwt_config).verify_access_token(&req.access_token) {
+            Ok((user_id, _)) => {
+                // 获取完整用户信息
+                match self.user_repo.find_by_id(&user_id).await {
+                    Ok(user) => Ok(VerifyTokenResponse {
+                        valid: true,
+                        user: Some(UserInfo {
+                            id: user.id.to_string(),
+                            username: user.username,
+                            role: user.role,
+                            email: user.email,
+                            status: user.status,
+                            created_at: user.created_at,
+                            last_login_at: user.last_login_at,
+                        }),
+                    }),
+                    Err(_) => Ok(VerifyTokenResponse {
+                        valid: false,
+                        user: None,
+                    }),
+                }
+            }
+            Err(_) => Ok(VerifyTokenResponse {
+                valid: false,
+                user: None,
+            }),
+        }
+    }
+
+    /// 哈希密码
 
     /// 哈希密码
     pub fn hash_password(password: &str) -> AppResult<String> {

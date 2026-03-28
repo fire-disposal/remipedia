@@ -37,3 +37,10 @@ pub struct LogoutRequest {
     /// 刷新令牌
     pub refresh_token: String,
 }
+
+/// 验证 Token 请求
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct VerifyTokenRequest {
+    /// 访问令牌
+    pub access_token: String,
+}

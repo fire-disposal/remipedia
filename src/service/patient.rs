@@ -7,19 +7,24 @@ use crate::dto::request::{
     CreatePatientProfileRequest, CreatePatientRequest, PatientQuery, UpdatePatientRequest,
 };
 use crate::dto::response::{
-    Pagination, PatientDetailResponse, PatientListResponse, PatientProfileResponse, PatientResponse,
+    BindingInfo, DeviceResponse, Pagination, PatientDetailResponse, PatientListResponse, 
+    PatientProfileResponse, PatientResponse, PatientStatsResponse,
 };
 use crate::errors::{AppError, AppResult};
-use crate::repository::PatientRepository;
+use crate::repository::{BindingRepository, DeviceRepository, PatientRepository};
 
 pub struct PatientService<'a> {
     patient_repo: PatientRepository<'a>,
+    device_repo: DeviceRepository<'a>,
+    binding_repo: BindingRepository<'a>,
 }
 
 impl<'a> PatientService<'a> {
     pub fn new(pool: &'a PgPool) -> Self {
         Self {
             patient_repo: PatientRepository::new(pool),
+            device_repo: DeviceRepository::new(pool),
+            binding_repo: BindingRepository::new(pool),
         }
     }
 
@@ -45,12 +50,18 @@ impl<'a> PatientService<'a> {
             })
             .await?;
 
+        // 如果提供了 profile，同时创建档案
+        if let Some(profile_req) = req.profile {
+            self.upsert_profile(&patient.id, profile_req).await?;
+        }
+
         info!(
             "患者创建成功: patient_id={}, name={}",
             patient.id, patient.name
         );
 
-        Ok(patient.into())
+        // 返回完整信息
+        self.get_by_id(&patient.id).await
     }
 
     /// 获取患者
@@ -69,6 +80,7 @@ impl<'a> PatientService<'a> {
             name: patient.name,
             external_id: patient.external_id,
             created_at: patient.created_at,
+            updated_at: patient.updated_at,
             profile: profile.map(|p| p.into()),
         })
     }
@@ -127,6 +139,42 @@ impl<'a> PatientService<'a> {
         Ok(())
     }
 
+    /// 获取患者绑定的设备列表
+    pub async fn get_patient_devices(&self, patient_id: &Uuid, active_only: bool) -> AppResult<Vec<DeviceResponse>> {
+        self.patient_repo.find_by_id(patient_id).await?;
+        
+        let bindings: Vec<crate::core::entity::Binding> = if active_only {
+            self.binding_repo.find_active_by_patient(patient_id).await?
+                .map(|b| vec![b])
+                .unwrap_or_default()
+        } else {
+            self.binding_repo.find_all_by_patient(patient_id, 1000, 0).await?
+        };
+
+        let mut devices = Vec::new();
+        for binding in bindings {
+            if let Ok(device) = self.device_repo.find_by_id(&binding.device_id).await {
+                devices.push(DeviceResponse {
+                    id: device.id,
+                    serial_number: device.serial_number,
+                    device_type: device.device_type,
+                    firmware_version: device.firmware_version,
+                    status: device.status,
+                    metadata: device.metadata,
+                    created_at: device.created_at,
+                    current_binding: Some(BindingInfo {
+                        binding_id: binding.id,
+                        patient_id: binding.patient_id,
+                        patient_name: None,
+                        started_at: binding.started_at,
+                    }),
+                });
+            }
+        }
+
+        Ok(devices)
+    }
+
     // ========== 患者档案 ==========
 
     /// 创建或更新患者档案
@@ -175,6 +223,32 @@ impl<'a> PatientService<'a> {
         let profile = self.patient_repo.find_profile(patient_id).await?;
         Ok(profile.map(|p| p.into()))
     }
+
+    /// 删除患者档案
+    pub async fn delete_profile(&self, patient_id: &Uuid) -> AppResult<()> {
+        self.patient_repo.find_by_id(patient_id).await?;
+        self.patient_repo.delete_profile(patient_id).await?;
+        info!("患者档案删除成功: patient_id={}", patient_id);
+        Ok(())
+    }
+
+    /// 获取患者统计信息
+    pub async fn get_stats(&self, patient_id: &Uuid) -> AppResult<PatientStatsResponse> {
+        // 确保患者存在
+        self.patient_repo.find_by_id(patient_id).await?;
+
+        // 获取绑定的设备数量
+        let device_count = self.binding_repo.count_by_patient(patient_id).await?;
+
+        // 获取有效绑定数
+        let active_bindings = self.binding_repo.find_all_by_patient(patient_id, 1000, 0).await?;
+        let active_device_count = active_bindings.iter().filter(|b| b.ended_at.is_none()).count() as i64;
+
+        Ok(PatientStatsResponse {
+            device_count,
+            active_device_count,
+        })
+    }
 }
 
 // 实体到响应的转换
@@ -185,6 +259,7 @@ impl From<crate::core::entity::Patient> for PatientResponse {
             name: patient.name,
             external_id: patient.external_id,
             created_at: patient.created_at,
+            updated_at: patient.updated_at,
         }
     }
 }

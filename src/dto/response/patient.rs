@@ -16,6 +16,8 @@ pub struct PatientResponse {
     pub external_id: Option<String>,
     /// 创建时间
     pub created_at: DateTime<Utc>,
+    /// 更新时间
+    pub updated_at: DateTime<Utc>,
 }
 
 /// 患者详情响应（含档案）
@@ -27,10 +29,12 @@ pub struct PatientDetailResponse {
     pub name: String,
     /// 外部ID
     pub external_id: Option<String>,
-    /// 患者档案
+    /// 患者档案（包含详细信息）
     pub profile: Option<PatientProfileResponse>,
     /// 创建时间
     pub created_at: DateTime<Utc>,
+    /// 更新时间
+    pub updated_at: DateTime<Utc>,
 }
 
 /// 患者档案响应
@@ -69,4 +73,13 @@ pub struct PatientListResponse {
     pub data: Vec<PatientResponse>,
     /// 分页信息
     pub pagination: Pagination,
+}
+
+/// 患者统计响应
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct PatientStatsResponse {
+    /// 关联设备总数
+    pub device_count: i64,
+    /// 有效绑定设备数
+    pub active_device_count: i64,
 }

@@ -39,4 +39,21 @@ pub struct UserInfo {
     pub username: String,
     /// 角色
     pub role: String,
+    /// 邮箱
+    pub email: Option<String>,
+    /// 状态
+    pub status: String,
+    /// 创建时间
+    pub created_at: chrono::DateTime<chrono::Utc>,
+    /// 最后登录时间
+    pub last_login_at: Option<chrono::DateTime<chrono::Utc>>,
+}
+
+/// 验证 Token 响应
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct VerifyTokenResponse {
+    /// 是否有效
+    pub valid: bool,
+    /// 用户信息（有效时返回）
+    pub user: Option<UserInfo>,
 }

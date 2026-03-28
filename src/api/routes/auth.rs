@@ -1,4 +1,4 @@
-use rocket::post;
+use rocket::{get, post};
 use rocket::serde::json::Json;
 use rocket::State;
 use sqlx::PgPool;
@@ -7,9 +7,9 @@ use utoipa::OpenApi;
 use crate::api::guards::AuthenticatedUser;
 use crate::config::JwtConfig;
 use crate::dto::request::{
-    ChangePasswordRequest, LoginRequest, LogoutRequest, RefreshTokenRequest,
+    ChangePasswordRequest, LoginRequest, LogoutRequest, RefreshTokenRequest, VerifyTokenRequest,
 };
-use crate::dto::response::{LoginResponse, RefreshTokenResponse};
+use crate::dto::response::{LoginResponse, RefreshTokenResponse, UserInfo, VerifyTokenResponse};
 use crate::errors::AppResult;
 use crate::service::AuthService;
 
@@ -113,10 +113,55 @@ pub async fn logout(
     ))
 }
 
+/// 获取当前用户信息
+#[utoipa::path(
+    get,
+    path = "/auth/me",
+    tag = "auth",
+    security(
+        ("bearer_auth" = [])
+    ),
+    responses(
+        (status = 200, description = "获取成功", body = UserInfo),
+        (status = 401, description = "未认证"),
+    )
+)]
+#[get("/auth/me")]
+pub async fn get_me(
+    pool: &State<PgPool>,
+    jwt_config: &State<JwtConfig>,
+    user: AuthenticatedUser,
+) -> AppResult<Json<UserInfo>> {
+    let service = AuthService::new(pool, jwt_config);
+    let response = service.get_me(&user.id).await?;
+    Ok(Json(response))
+}
+
+/// 验证 Token 有效性
+#[utoipa::path(
+    post,
+    path = "/auth/verify",
+    tag = "auth",
+    request_body = VerifyTokenRequest,
+    responses(
+        (status = 200, description = "验证结果", body = VerifyTokenResponse),
+    )
+)]
+#[post("/auth/verify", data = "<req>")]
+pub async fn verify_token(
+    pool: &State<PgPool>,
+    jwt_config: &State<JwtConfig>,
+    req: Json<VerifyTokenRequest>,
+) -> AppResult<Json<VerifyTokenResponse>> {
+    let service = AuthService::new(pool, jwt_config);
+    let response = service.verify_token(req.into_inner()).await?;
+    Ok(Json(response))
+}
+
 pub fn routes() -> Vec<rocket::Route> {
-    rocket::routes![login, refresh_token, change_password, logout]
+    rocket::routes![login, refresh_token, change_password, logout, get_me, verify_token]
 }
 
 #[derive(OpenApi)]
-#[openapi(paths(login, refresh_token, change_password, logout))]
+#[openapi(paths(login, refresh_token, change_password, logout, get_me, verify_token))]
 pub struct AuthApiDoc;

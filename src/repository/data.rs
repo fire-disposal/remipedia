@@ -129,4 +129,14 @@ impl<'a> DataRepository<'a> {
 
         Ok(data)
     }
+
+    /// 删除数据
+    pub async fn delete(&self, id: &Uuid) -> AppResult<()> {
+        sqlx::query("DELETE FROM datasheet WHERE id = $1")
+            .bind(id)
+            .execute(self.pool)
+            .await
+            .map_err(crate::errors::AppError::DatabaseError)?;
+        Ok(())
+    }
 }

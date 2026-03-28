@@ -58,7 +58,9 @@ impl<'a> PatientRepository<'a> {
         external_id: Option<&str>,
     ) -> AppResult<Patient> {
         sqlx::query_as::<_, Patient>(
-            r#"UPDATE patient SET name = COALESCE($2, name), external_id = COALESCE($3, external_id)
+            r#"UPDATE patient 
+               SET name = COALESCE($2, name), 
+                   external_id = COALESCE($3, external_id)
                WHERE id = $1
                RETURNING id, name, external_id, created_at, updated_at"#,
         )

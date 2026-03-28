@@ -7,10 +7,27 @@ use uuid::Uuid;
 
 use crate::api::guards::AuthenticatedUser;
 use crate::dto::request::{DeviceQuery, RegisterDeviceRequest, UpdateDeviceRequest};
+use crate::dto::response::BindingListResponse;
 use crate::dto::response::DeviceListResponse;
 use crate::dto::response::DeviceResponse;
 use crate::errors::{AppError, AppResult};
-use crate::service::DeviceService;
+use crate::service::{BindingService, DeviceService};
+
+#[derive(rocket::serde::Serialize, utoipa::ToSchema)]
+#[schema(example = json!({
+    "total": 100,
+    "active": 80,
+    "inactive": 20,
+    "online": 50,
+    "offline": 50
+}))]
+pub struct DeviceStatsResponse {
+    pub total: i64,
+    pub active: i64,
+    pub inactive: i64,
+    pub online: i64,
+    pub offline: i64,
+}
 
 /// 注册设备
 #[utoipa::path(
@@ -170,8 +187,67 @@ pub fn routes() -> Vec<rocket::Route> {
         get_device,
         update_device,
         delete_device,
-        list_devices
+        list_devices,
+        get_device_stats,
+        get_device_bindings
     ]
+}
+
+/// 获取设备统计
+#[utoipa::path(
+    get,
+    path = "/devices/stats",
+    tag = "devices",
+    security(
+        ("bearer_auth" = [])
+    ),
+    responses(
+        (status = 200, description = "获取成功", body = DeviceStatsResponse),
+    )
+)]
+#[get("/devices/stats")]
+pub async fn get_device_stats(
+    pool: &State<PgPool>,
+    _user: AuthenticatedUser,
+) -> AppResult<Json<DeviceStatsResponse>> {
+    let service = DeviceService::new(pool);
+    let stats = service.get_stats().await?;
+    Ok(Json(stats))
+}
+
+/// 获取设备的绑定历史
+#[utoipa::path(
+    get,
+    path = "/devices/{id}/bindings",
+    tag = "devices",
+    security(
+        ("bearer_auth" = [])
+    ),
+    params(
+        ("id" = String, Path, description = "设备ID"),
+        ("page" = Option<u32>, Query, description = "页码"),
+        ("page_size" = Option<u32>, Query, description = "每页数量"),
+    ),
+    responses(
+        (status = 200, description = "获取成功", body = BindingListResponse),
+    )
+)]
+#[get("/devices/<id>/bindings?<page>&<page_size>")]
+pub async fn get_device_bindings(
+    pool: &State<PgPool>,
+    _user: AuthenticatedUser,
+    id: &str,
+    page: Option<u32>,
+    page_size: Option<u32>,
+) -> AppResult<Json<BindingListResponse>> {
+    let id = Uuid::parse_str(id).map_err(|_| AppError::ValidationError("无效的设备 ID".into()))?;
+    let service = BindingService::new(pool);
+    let response = service.get_device_binding_history(
+        &id,
+        page.unwrap_or(1),
+        page_size.unwrap_or(20),
+    ).await?;
+    Ok(Json(response))
 }
 
 #[derive(OpenApi)]
@@ -180,6 +256,8 @@ pub fn routes() -> Vec<rocket::Route> {
     get_device,
     update_device,
     delete_device,
-    list_devices
+    list_devices,
+    get_device_stats,
+    get_device_bindings
 ))]
 pub struct DeviceApiDoc;

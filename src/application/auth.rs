@@ -243,3 +243,19 @@ fn sha256_hash(input: &str) -> String {
     hasher.update(input.as_bytes());
     format!("{:x}", hasher.finalize())
 }
+
+/// 哈希密码（公共函数）
+pub fn hash_password(password: &str) -> crate::errors::AppResult<String> {
+    use argon2::{
+        password_hash::{rand_core::OsRng, PasswordHasher, SaltString},
+        Argon2,
+    };
+    
+    let salt = SaltString::generate(&mut OsRng);
+    let argon2 = Argon2::default();
+
+    argon2
+        .hash_password(password.as_bytes(), &salt)
+        .map(|hash| hash.to_string())
+        .map_err(|_| crate::errors::AppError::InternalError)
+}

@@ -5,10 +5,13 @@
 use sqlx::PgPool;
 
 use crate::config::JwtConfig;
-use crate::infrastructure::persistence::{SqlxBindingRepository, SqlxDeviceRepository};
+use crate::infrastructure::persistence::{SqlxBindingRepository, SqlxDeviceRepository, SqlxPatientRepository, SqlxUserRepository};
 
 pub mod auth;
+pub mod binding;
 pub mod device;
+pub mod patient;
+pub mod user;
 
 /// 应用上下文
 pub struct AppContext<'a> {
@@ -26,6 +29,14 @@ impl<'a> AppContext<'a> {
 
     pub fn binding_repo(&self) -> SqlxBindingRepository<'_> {
         SqlxBindingRepository::new(self.pool)
+    }
+
+    pub fn patient_repo(&self) -> SqlxPatientRepository<'_> {
+        SqlxPatientRepository::new(self.pool)
+    }
+
+    pub fn user_repo(&self) -> SqlxUserRepository<'_> {
+        SqlxUserRepository::new(self.pool)
     }
 
     pub fn auth_service(&self, jwt_config: &'a JwtConfig) -> auth::AuthAppService<'_> {

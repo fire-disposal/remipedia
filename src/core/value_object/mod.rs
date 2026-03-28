@@ -93,6 +93,16 @@ pub enum UserStatus {
     Locked,
 }
 
+impl UserStatus {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Active => "active",
+            Self::Inactive => "inactive",
+            Self::Locked => "locked",
+        }
+    }
+}
+
 impl Default for UserStatus {
     fn default() -> Self {
         Self::Active

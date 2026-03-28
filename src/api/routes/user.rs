@@ -1,25 +1,22 @@
 use rocket::serde::json::Json;
 use rocket::State;
-use rocket::{delete, get, post, put};
+use rocket::{delete, get, post, put, routes, Route};
 use sqlx::PgPool;
-use utoipa::OpenApi;
 use uuid::Uuid;
 
-use crate::api::guards::AdminUser;
+use crate::api::guards::{AdminUser, AuthenticatedUser};
+use crate::application::user::UserAppService;
+use crate::application::AppContext;
 use crate::dto::request::{CreateUserRequest, UpdateUserRequest, UserQuery};
-use crate::dto::response::UserListResponse;
-use crate::dto::response::UserResponse;
+use crate::dto::response::{UserListResponse, UserResponse};
 use crate::errors::{AppError, AppResult};
-use crate::service::UserService;
 
-/// 创建用户
+/// 创建用户（仅管理员）
 #[utoipa::path(
     post,
     path = "/users",
     tag = "users",
-    security(
-        ("bearer_auth" = [])
-    ),
+    security(("bearer_auth" = [])),
     request_body = CreateUserRequest,
     responses(
         (status = 200, description = "创建成功", body = UserResponse),
@@ -33,7 +30,8 @@ pub async fn create_user(
     _admin: AdminUser,
     req: Json<CreateUserRequest>,
 ) -> AppResult<Json<UserResponse>> {
-    let service = UserService::new(pool);
+    let ctx = AppContext::new(pool);
+    let service = UserAppService::new(ctx);
     let response = service.create(req.into_inner()).await?;
     Ok(Json(response))
 }
@@ -43,12 +41,8 @@ pub async fn create_user(
     get,
     path = "/users/{id}",
     tag = "users",
-    security(
-        ("bearer_auth" = [])
-    ),
-    params(
-        ("id" = String, Path, description = "用户ID")
-    ),
+    security(("bearer_auth" = [])),
+    params(("id" = String, Path, description = "用户ID")),
     responses(
         (status = 200, description = "获取成功", body = UserResponse),
         (status = 404, description = "用户不存在"),
@@ -57,12 +51,13 @@ pub async fn create_user(
 #[get("/users/<id>")]
 pub async fn get_user(
     pool: &State<PgPool>,
-    _admin: AdminUser,
+    _user: AuthenticatedUser,
     id: &str,
 ) -> AppResult<Json<UserResponse>> {
     let id = Uuid::parse_str(id).map_err(|_| AppError::ValidationError("无效的用户 ID".into()))?;
-    let service = UserService::new(pool);
-    let response = service.get_by_id(&id).await?;
+    let ctx = AppContext::new(pool);
+    let service = UserAppService::new(ctx);
+    let response = service.get_by_id(id).await?;
     Ok(Json(response))
 }
 
@@ -71,12 +66,8 @@ pub async fn get_user(
     put,
     path = "/users/{id}",
     tag = "users",
-    security(
-        ("bearer_auth" = [])
-    ),
-    params(
-        ("id" = String, Path, description = "用户ID")
-    ),
+    security(("bearer_auth" = [])),
+    params(("id" = String, Path, description = "用户ID")),
     request_body = UpdateUserRequest,
     responses(
         (status = 200, description = "更新成功", body = UserResponse),
@@ -86,27 +77,24 @@ pub async fn get_user(
 #[put("/users/<id>", data = "<req>")]
 pub async fn update_user(
     pool: &State<PgPool>,
-    _admin: AdminUser,
+    _user: AuthenticatedUser,
     id: &str,
     req: Json<UpdateUserRequest>,
 ) -> AppResult<Json<UserResponse>> {
     let id = Uuid::parse_str(id).map_err(|_| AppError::ValidationError("无效的用户 ID".into()))?;
-    let service = UserService::new(pool);
-    let response = service.update(&id, req.into_inner()).await?;
+    let ctx = AppContext::new(pool);
+    let service = UserAppService::new(ctx);
+    let response = service.update(id, req.into_inner()).await?;
     Ok(Json(response))
 }
 
-/// 删除用户
+/// 删除用户（仅管理员）
 #[utoipa::path(
     delete,
     path = "/users/{id}",
     tag = "users",
-    security(
-        ("bearer_auth" = [])
-    ),
-    params(
-        ("id" = String, Path, description = "用户ID")
-    ),
+    security(("bearer_auth" = [])),
+    params(("id" = String, Path, description = "用户ID")),
     responses(
         (status = 200, description = "删除成功"),
         (status = 404, description = "用户不存在"),
@@ -115,15 +103,13 @@ pub async fn update_user(
 #[delete("/users/<id>")]
 pub async fn delete_user(
     pool: &State<PgPool>,
-    admin: AdminUser,
+    _admin: AdminUser,
     id: &str,
 ) -> AppResult<Json<serde_json::Value>> {
     let id = Uuid::parse_str(id).map_err(|_| AppError::ValidationError("无效的用户 ID".into()))?;
-    if admin.0.id == id {
-        return Err(AppError::ValidationError("不允许删除当前管理员账号".into()));
-    }
-    let service = UserService::new(pool);
-    service.delete(&id).await?;
+    let ctx = AppContext::new(pool);
+    let service = UserAppService::new(ctx);
+    service.delete(id).await?;
     Ok(Json(serde_json::json!({ "success": true })))
 }
 
@@ -132,9 +118,7 @@ pub async fn delete_user(
     get,
     path = "/users",
     tag = "users",
-    security(
-        ("bearer_auth" = [])
-    ),
+    security(("bearer_auth" = [])),
     params(
         ("role" = Option<String>, Query, description = "角色筛选"),
         ("status" = Option<String>, Query, description = "状态筛选"),
@@ -148,13 +132,14 @@ pub async fn delete_user(
 #[get("/users?<role>&<status>&<page>&<page_size>")]
 pub async fn list_users(
     pool: &State<PgPool>,
-    _admin: AdminUser,
+    _user: AuthenticatedUser,
     role: Option<String>,
     status: Option<String>,
     page: Option<u32>,
     page_size: Option<u32>,
 ) -> AppResult<Json<UserListResponse>> {
-    let service = UserService::new(pool);
+    let ctx = AppContext::new(pool);
+    let service = UserAppService::new(ctx);
     let query = UserQuery {
         role,
         status,
@@ -165,10 +150,6 @@ pub async fn list_users(
     Ok(Json(response))
 }
 
-pub fn routes() -> Vec<rocket::Route> {
-    rocket::routes![create_user, get_user, update_user, delete_user, list_users]
+pub fn routes() -> Vec<Route> {
+    routes![create_user, get_user, update_user, delete_user, list_users]
 }
-
-#[derive(OpenApi)]
-#[openapi(paths(create_user, get_user, update_user, delete_user, list_users))]
-pub struct UserApiDoc;

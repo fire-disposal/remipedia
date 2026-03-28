@@ -4,6 +4,8 @@
 
 pub mod binding;
 pub mod device;
+pub mod patient;
 pub mod shared;
+pub mod user;
 
 pub use shared::{BindingId, DeviceId, DomainError, DomainResult, PatientId, UserId};

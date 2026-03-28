@@ -1,6 +1,9 @@
 pub mod auth;
+pub mod binding;
 pub mod device;
 pub mod health;
+pub mod patient;
+pub mod user;
 
 use rocket::{options, routes, Route};
 
@@ -13,7 +16,10 @@ pub fn options_preflight() -> &'static str {
 pub fn routes() -> Vec<Route> {
     let mut all_routes = Vec::new();
     all_routes.extend(auth::routes());
+    all_routes.extend(binding::routes());
     all_routes.extend(device::routes());
+    all_routes.extend(patient::routes());
+    all_routes.extend(user::routes());
     all_routes.extend(routes![options_preflight]);
     all_routes
 }

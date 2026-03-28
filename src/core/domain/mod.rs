@@ -2,6 +2,7 @@
 //!
 //! 包含核心业务逻辑：实体、值对象、领域服务、仓储接口
 
+pub mod binding;
 pub mod device;
 pub mod shared;
 

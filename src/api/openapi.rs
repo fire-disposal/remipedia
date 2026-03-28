@@ -10,6 +10,9 @@ use utoipa_swagger_ui::SwaggerUi;
         description = "IoT 健康数据平台 API 文档",
     ),
     paths(
+        crate::api::routes::auth::login,
+        crate::api::routes::auth::refresh_token,
+        crate::api::routes::auth::me,
         crate::api::routes::device::register_device,
         crate::api::routes::device::get_device,
         crate::api::routes::device::update_device_status,
@@ -18,6 +21,9 @@ use utoipa_swagger_ui::SwaggerUi;
     ),
     components(
         schemas(
+            crate::api::routes::auth::LoginRequest,
+            crate::api::routes::auth::LoginResponse,
+            crate::api::routes::auth::RefreshTokenRequest,
             crate::dto::request::RegisterDeviceRequest,
             crate::dto::request::UpdateDeviceRequest,
             crate::dto::request::DeviceQuery,
@@ -27,6 +33,7 @@ use utoipa_swagger_ui::SwaggerUi;
         ),
     ),
     tags(
+        (name = "auth", description = "认证相关接口"),
         (name = "devices", description = "设备管理接口"),
     ),
 )]

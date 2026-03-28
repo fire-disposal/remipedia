@@ -3,6 +3,8 @@ use rocket::request::{FromRequest, Outcome};
 use rocket::Request;
 use uuid::Uuid;
 
+use crate::application::auth::JwtVerifier;
+use crate::config::JwtConfig;
 use crate::core::value_object::UserRole;
 use crate::errors::AppError;
 
@@ -17,13 +19,39 @@ pub struct AuthenticatedUser {
 impl<'r> FromRequest<'r> for AuthenticatedUser {
     type Error = AppError;
 
-    async fn from_request(_request: &'r Request<'_>) -> Outcome<Self, Self::Error> {
-        // 简化：返回一个默认用户，用于测试
-        // 实际应该验证JWT
-        Outcome::Success(AuthenticatedUser {
-            id: Uuid::now_v7(),
-            role: UserRole::Admin,
-        })
+    async fn from_request(request: &'r Request<'_>) -> Outcome<Self, Self::Error> {
+        // 获取 Authorization header
+        let auth_header = request.headers().get_one("Authorization");
+
+        match auth_header {
+            Some(header) if header.starts_with("Bearer ") => {
+                let token = &header[7..];
+
+                // 获取 JWT 配置
+                let jwt_config = request.rocket().state::<JwtConfig>();
+
+                match jwt_config {
+                    Some(config) => {
+                        // 使用 JwtVerifier 验证 token
+                        let verifier = JwtVerifier::new(config);
+                        match verifier.verify_access_token(token) {
+                            Ok((user_id, role)) => {
+                                Outcome::Success(AuthenticatedUser { id: user_id, role })
+                            }
+                            Err(e) => Outcome::Error((Status::Unauthorized, e)),
+                        }
+                    }
+                    None => Outcome::Error((
+                        Status::InternalServerError,
+                        AppError::ConfigError("JWT 配置缺失".into()),
+                    )),
+                }
+            }
+            _ => Outcome::Error((
+                Status::Unauthorized,
+                AppError::Unauthorized("缺少认证信息".into()),
+            )),
+        }
     }
 }
 

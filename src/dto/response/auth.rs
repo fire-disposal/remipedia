@@ -1,30 +1,27 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
+use uuid::Uuid;
 
 /// 登录响应
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct LoginResponse {
-    /// 是否成功
-    pub success: bool,
     /// 访问令牌
     pub access_token: String,
     /// 刷新令牌
     pub refresh_token: String,
-    /// 用户信息
-    pub user: UserInfo,
     /// 过期时间
     pub expires_at: DateTime<Utc>,
+    /// 用户信息
+    pub user: UserInfo,
 }
 
-/// 刷新令牌响应
+/// 令牌刷新响应
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct RefreshTokenResponse {
-    /// 是否成功
-    pub success: bool,
-    /// 访问令牌
+    /// 新的访问令牌
     pub access_token: String,
-    /// 刷新令牌
+    /// 新的刷新令牌
     pub refresh_token: String,
     /// 过期时间
     pub expires_at: DateTime<Utc>,
@@ -44,16 +41,16 @@ pub struct UserInfo {
     /// 状态
     pub status: String,
     /// 创建时间
-    pub created_at: chrono::DateTime<chrono::Utc>,
+    pub created_at: DateTime<Utc>,
     /// 最后登录时间
-    pub last_login_at: Option<chrono::DateTime<chrono::Utc>>,
+    pub last_login_at: Option<DateTime<Utc>>,
 }
 
-/// 验证 Token 响应
+/// 令牌验证响应
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct VerifyTokenResponse {
     /// 是否有效
     pub valid: bool,
-    /// 用户信息（有效时返回）
+    /// 用户信息（如果有效）
     pub user: Option<UserInfo>,
 }

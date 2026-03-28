@@ -1,3 +1,4 @@
+pub mod auth;
 pub mod device;
 pub mod health;
 
@@ -11,6 +12,7 @@ pub fn options_preflight() -> &'static str {
 
 pub fn routes() -> Vec<Route> {
     let mut all_routes = Vec::new();
+    all_routes.extend(auth::routes());
     all_routes.extend(device::routes());
     all_routes.extend(routes![options_preflight]);
     all_routes

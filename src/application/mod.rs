@@ -4,10 +4,10 @@
 
 use sqlx::PgPool;
 
-use crate::core::domain::binding::{BindingDomainService, BindingRepository};
-use crate::core::domain::device::DeviceRepository;
+use crate::config::JwtConfig;
 use crate::infrastructure::persistence::{SqlxBindingRepository, SqlxDeviceRepository};
 
+pub mod auth;
 pub mod device;
 
 /// 应用上下文
@@ -28,10 +28,7 @@ impl<'a> AppContext<'a> {
         SqlxBindingRepository::new(self.pool)
     }
 
-    pub fn binding_service(&self) -> BindingDomainService<SqlxDeviceRepository<'_>, SqlxBindingRepository<'_>> {
-        BindingDomainService::new(
-            SqlxDeviceRepository::new(self.pool),
-            SqlxBindingRepository::new(self.pool),
-        )
+    pub fn auth_service(&self, jwt_config: &'a JwtConfig) -> auth::AuthAppService<'_> {
+        auth::AuthAppService::new(self.pool, jwt_config)
     }
 }

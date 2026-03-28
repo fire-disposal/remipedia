@@ -79,3 +79,76 @@ impl<'r> FromRequest<'r> for AdminUser {
         }
     }
 }
+
+/// 基于权限的守卫
+///
+/// 用法：
+/// ```rust
+/// #[get("/devices")]
+/// async fn list_devices(
+///     guard: PermissionGuard,
+///     user: AuthenticatedUser,
+/// ) -> Result<Json<DeviceList>, AppError> {
+///     guard.require("device:read")?;
+///     // ...
+/// }
+/// ```
+#[derive(Debug, Clone)]
+pub struct PermissionGuard {
+    user: AuthenticatedUser,
+}
+
+impl PermissionGuard {
+    /// 检查用户是否有指定权限
+    ///
+    /// 注意：当前实现仅基于角色做简化检查。
+    /// 完整实现需要从数据库查询用户的角色权限。
+    pub fn require(&self, permission: &str) -> Result<(), AppError> {
+        // 管理员拥有所有权限
+        if self.user.role.is_admin() {
+            return Ok(());
+        }
+
+        // 普通用户的基本读权限
+        let allowed_permissions = ["device:read", "patient:read", "binding:read", "data:read"];
+        
+        if allowed_permissions.contains(&permission) {
+            Ok(())
+        } else {
+            Err(AppError::Forbidden)
+        }
+    }
+
+    /// 检查是否有任一权限
+    pub fn require_any(&self, permissions: &[&str]) -> Result<(), AppError> {
+        for &permission in permissions {
+            if self.require(permission).is_ok() {
+                return Ok(());
+            }
+        }
+        Err(AppError::Forbidden)
+    }
+
+    /// 检查是否有所有权限
+    pub fn require_all(&self, permissions: &[&str]) -> Result<(), AppError> {
+        for &permission in permissions {
+            self.require(permission)?;
+        }
+        Ok(())
+    }
+}
+
+#[rocket::async_trait]
+impl<'r> FromRequest<'r> for PermissionGuard {
+    type Error = AppError;
+
+    async fn from_request(request: &'r Request<'_>) -> Outcome<Self, Self::Error> {
+        let user = AuthenticatedUser::from_request(request).await;
+
+        match user {
+            Outcome::Success(user) => Outcome::Success(PermissionGuard { user }),
+            Outcome::Error(e) => Outcome::Error(e),
+            Outcome::Forward(f) => Outcome::Forward(f),
+        }
+    }
+}

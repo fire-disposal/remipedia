@@ -1,17 +1,22 @@
 //! 设备接入框架
-//! 
+//!
 //! 提供统一的设备接入、状态管理和事件处理接口
 
 use std::collections::HashMap;
 use std::sync::Arc;
+
 use chrono::{DateTime, Utc};
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use tokio::sync::RwLock;
-use sqlx::PgPool;
 
-use crate::errors::{AppError, AppResult};
+use crate::application::healthdata::HealthDataAppService;
+use crate::core::domain::device::DeviceRepository;
+use crate::core::domain::healthdata::{DataSource, DataType};
+use crate::core::domain::shared::DeviceId;
 use crate::core::value_object::DeviceTypeId;
+use crate::errors::{AppError, AppResult};
+use crate::infrastructure::persistence::SqlxDeviceRepository;
 
 /// 设备元信息
 #[derive(Debug, Clone, Serialize)]
@@ -41,18 +46,18 @@ pub enum AdapterOutput {
 }
 
 /// 设备适配器 trait
-/// 
+///
 /// 负责解析原始数据并验证
 pub trait DeviceAdapter: Send + Sync {
     /// 获取设备元信息
     fn metadata(&self) -> DeviceMetadata;
-    
+
     /// 解析原始数据
     fn parse(&self, raw: &[u8]) -> AppResult<AdapterOutput>;
-    
+
     /// 验证解析后的输出
     fn validate(&self, output: &AdapterOutput) -> AppResult<()>;
-    
+
     /// 获取设备类型
     fn device_type(&self) -> DeviceTypeId {
         self.metadata().device_type.clone()
@@ -60,15 +65,15 @@ pub trait DeviceAdapter: Send + Sync {
 }
 
 /// 设备状态 trait
-/// 
+///
 /// 管理设备特定状态
 pub trait DeviceState: Send + Sync {
     /// 更新状态
     fn update(&mut self, data: &MessagePayload) -> AppResult<()>;
-    
+
     /// 获取状态快照
     fn snapshot(&self) -> Value;
-    
+
     /// 重置状态
     fn reset(&mut self);
 }
@@ -111,20 +116,20 @@ impl DeviceInstance {
             state,
         }
     }
-    
+
     pub fn touch(&mut self) {
         self.last_seen = Utc::now();
     }
-    
+
     pub fn is_idle(&self, timeout: chrono::Duration) -> bool {
         Utc::now() - self.last_seen > timeout
     }
-    
+
     /// 处理原始数据
     pub fn process(&mut self, raw: &[u8]) -> AppResult<AdapterOutput> {
         let output = self.adapter.parse(raw)?;
         self.adapter.validate(&output)?;
-        
+
         // 更新状态
         if let Some(ref mut state) = self.state {
             if let AdapterOutput::Messages(ref msgs) = output {
@@ -133,11 +138,11 @@ impl DeviceInstance {
                 }
             }
         }
-        
+
         self.touch();
         Ok(output)
     }
-    
+
     /// 获取状态快照
     pub fn state_snapshot(&self) -> Option<Value> {
         self.state.as_ref().map(|s| s.snapshot())
@@ -148,12 +153,12 @@ impl DeviceInstance {
 pub struct DeviceManager {
     devices: RwLock<HashMap<String, DeviceInstance>>,
     adapters: RwLock<HashMap<DeviceTypeId, Arc<dyn DeviceAdapter>>>,
-    pool: Arc<PgPool>,
+    pool: Arc<sqlx::PgPool>,
     idle_timeout: chrono::Duration,
 }
 
 impl DeviceManager {
-    pub fn new(pool: Arc<PgPool>) -> Self {
+    pub fn new(pool: Arc<sqlx::PgPool>) -> Self {
         Self {
             devices: RwLock::new(HashMap::new()),
             adapters: RwLock::new(HashMap::new()),
@@ -161,20 +166,23 @@ impl DeviceManager {
             idle_timeout: chrono::Duration::minutes(30),
         }
     }
-    
+
     /// 注册适配器
     pub async fn register_adapter(&self, adapter: Arc<dyn DeviceAdapter>) {
         let device_type = adapter.device_type();
         let mut adapters = self.adapters.write().await;
         adapters.insert(device_type, adapter);
     }
-    
+
     /// 获取适配器
-    pub async fn get_adapter(&self, device_type: &DeviceTypeId) -> Option<Arc<dyn DeviceAdapter>> {
+    pub async fn get_adapter(
+        &self,
+        device_type: &DeviceTypeId,
+    ) -> Option<Arc<dyn DeviceAdapter>> {
         let adapters = self.adapters.read().await;
         adapters.get(device_type).cloned()
     }
-    
+
     /// 处理设备数据
     pub async fn process(
         &self,
@@ -184,7 +192,7 @@ impl DeviceManager {
         source: &str,
     ) -> AppResult<ProcessResult> {
         let mut devices = self.devices.write().await;
-        
+
         // 获取或创建设备实例
         let device = match devices.get_mut(serial_number) {
             Some(d) => d,
@@ -192,60 +200,102 @@ impl DeviceManager {
                 // 获取适配器
                 let adapter = {
                     let adapters = self.adapters.read().await;
-                    adapters.get(&device_type)
+                    adapters
+                        .get(&device_type)
                         .cloned()
-                        .ok_or_else(|| AppError::ValidationError(format!("未找到设备类型 {} 的适配器", device_type)))?
+                        .ok_or_else(|| {
+                            AppError::ValidationError(format!(
+                                "未找到设备类型 {} 的适配器",
+                                device_type
+                            ))
+                        })?
                 };
-                
+
+                // 查询设备真实 ID
+                let device_repo = SqlxDeviceRepository::new(&self.pool);
+                let device_id = match device_repo
+                    .find_by_serial(serial_number)
+                    .await
+                {
+                    Ok(Some(device)) => device.id().clone(),
+                    _ => {
+                        log::warn!("未找到序列号 {} 对应的设备，使用 nil UUID", serial_number);
+                        DeviceId::from_uuid(uuid::Uuid::nil())
+                    }
+                };
+
                 // 创建新设备实例
                 let new_device = DeviceInstance::new(
-                    serial_number.to_string(),
+                    device_id.as_uuid().to_string(),
                     device_type.clone(),
                     serial_number.to_string(),
                     adapter,
                     None, // 状态可以后续添加
                 );
-                
+
                 devices.insert(serial_number.to_string(), new_device);
                 devices.get_mut(serial_number).unwrap()
             }
         };
-        
+
         // 处理数据
         let output = device.process(&raw)?;
-        
-        // 简化入库 - 直接SQL插入
+
+        // 使用应用服务保存数据
         let mut persisted = 0;
         let mut events = 0;
-        
+
         if let AdapterOutput::Messages(msgs) = output {
+            // 获取设备 ID
+            let device_id = DeviceId::from_uuid(
+                uuid::Uuid::parse_str(&device.device_id).unwrap_or_else(|_| uuid::Uuid::nil()),
+            );
+
+            // 创建健康数据服务
+            let health_service = HealthDataAppService::new(&self.pool);
+
             for msg in msgs {
                 if msg.message_type.is_some() {
                     events += 1;
                 }
-                
-                // 直接插入数据库
-                let result = sqlx::query(
-                    "INSERT INTO datasheet (time, device_id, data_type, payload, source) VALUES ($1, $2, $3, $4, $5)"
-                )
-                .bind(msg.time)
-                .bind(uuid::Uuid::nil())
-                .bind(&msg.data_type)
-                .bind(&msg.payload)
-                .bind(source)
-                .execute(&*self.pool)
-                .await;
-                
-                if result.is_ok() {
-                    persisted += 1;
-                } else {
-                    log::error!("入库失败");
+
+                // 将字符串 data_type 转换为 DataType 枚举
+                let data_type = match msg.data_type.as_str() {
+                    "smart_mattress" => DataType::MattressStatus,
+                    "heart_rate" => DataType::HeartRate,
+                    "spo2" => DataType::SpO2,
+                    "blood_pressure" => DataType::BloodPressure,
+                    "temperature" => DataType::Temperature,
+                    "fall_event" => DataType::FallEvent,
+                    _ => DataType::Custom(msg.data_type.clone()),
+                };
+
+                // 使用应用服务保存数据
+                let source_enum = match source {
+                    "tcp" => DataSource::Tcp,
+                    "mqtt" => DataSource::Mqtt,
+                    "http" => DataSource::Http,
+                    "websocket" => DataSource::WebSocket,
+                    _ => DataSource::Internal,
+                };
+
+                match health_service
+                    .ingest_data(device_id.clone(), data_type, msg.payload, source_enum)
+                    .await
+                {
+                    Ok(_) => persisted += 1,
+                    Err(e) => log::error!("保存健康数据失败: {}", e),
                 }
             }
         }
-        
-        log::debug!("处理完成: {} -> {}条, {}事件", serial_number, persisted, events);
-        
+
+        log::debug!(
+            "处理完成: {} -> {}条, {}事件",
+            serial_number,
+            persisted,
+            events
+        );
+
         Ok(ProcessResult {
             serial_number: serial_number.to_string(),
             device_type: device_type.to_string(),
@@ -254,22 +304,22 @@ impl DeviceManager {
             errors: vec![],
         })
     }
-    
+
     /// 清理空闲设备
     pub async fn cleanup_idle(&self) -> usize {
         let mut devices = self.devices.write().await;
         let before = devices.len();
-        
+
         devices.retain(|_, device| !device.is_idle(self.idle_timeout));
-        
+
         let removed = before - devices.len();
         removed
     }
-    
+
     /// 获取所有设备信息
     pub async fn list_devices(&self) -> Vec<DeviceInfo> {
         let devices = self.devices.read().await;
-        
+
         devices
             .iter()
             .map(|(_id, device)| DeviceInfo {
@@ -280,13 +330,13 @@ impl DeviceManager {
             })
             .collect()
     }
-    
+
     /// 获取设备数量
     pub async fn device_count(&self) -> usize {
         let devices = self.devices.read().await;
         devices.len()
     }
-    
+
     /// 获取支持的设备类型列表
     pub async fn supported_device_types(&self) -> Vec<DeviceMetadata> {
         let adapters = self.adapters.read().await;
@@ -313,14 +363,6 @@ pub struct DeviceInfo {
     pub is_idle: bool,
 }
 
-impl Default for DeviceManager {
-    fn default() -> Self {
-        // 需要提供一个默认的 pool，但这里无法提供，所以 panic
-        // 实际使用中应该使用 new(pool) 创建
-        panic!("DeviceManager::default() 不可用，请使用 DeviceManager::new(pool)");
-    }
-}
-
 /// 适配器注册表
 pub struct AdapterRegistry {
     adapters: HashMap<DeviceTypeId, Arc<dyn DeviceAdapter>>,
@@ -332,28 +374,28 @@ impl AdapterRegistry {
             adapters: HashMap::new(),
         }
     }
-    
+
     /// 注册适配器
     pub fn register(&mut self, adapter: Arc<dyn DeviceAdapter>) {
         let device_type = adapter.device_type();
         self.adapters.insert(device_type, adapter);
     }
-    
+
     /// 获取适配器
     pub fn get(&self, device_type: &DeviceTypeId) -> Option<Arc<dyn DeviceAdapter>> {
         self.adapters.get(device_type).cloned()
     }
-    
+
     /// 检查是否支持该设备类型
     pub fn is_supported(&self, device_type: &DeviceTypeId) -> bool {
         self.adapters.contains_key(device_type)
     }
-    
+
     /// 获取所有支持的设备类型
     pub fn supported_types(&self) -> Vec<DeviceTypeId> {
         self.adapters.keys().cloned().collect()
     }
-    
+
     /// 获取所有设备元信息
     pub fn all_metadata(&self) -> Vec<DeviceMetadata> {
         self.adapters.values().map(|a| a.metadata()).collect()

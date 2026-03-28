@@ -14,8 +14,9 @@ use sqlx::PgPool;
 use remipedia::api::routes;
 use remipedia::api::swagger_ui;
 use remipedia::config::Settings;
-use remipedia::ingest::DeviceManager;
+
 use remipedia::ingest::AdapterRegistry;
+use remipedia::ingest::DeviceManager;
 use remipedia::ingest::transport::mqtt::MqttTransport;
 use remipedia::ingest::transport::tcp::TcpTransport;
 use remipedia::ingest::transport::websocket::WebSocketTransport;
@@ -138,7 +139,11 @@ async fn run_migrations(pool: &PgPool) -> anyhow::Result<()> {
 }
 
 /// 创建 Rocket 应用
-async fn build_rocket(settings: &Settings, pool: PgPool, device_manager: Arc<DeviceManager>) -> Rocket<Build> {
+async fn build_rocket(
+    settings: &Settings,
+    pool: PgPool,
+    device_manager: Arc<DeviceManager>,
+) -> Rocket<Build> {
     // 创建适配器注册表
     let mut registry = AdapterRegistry::new();
     

@@ -5,11 +5,12 @@
 use sqlx::PgPool;
 
 use crate::config::JwtConfig;
-use crate::infrastructure::persistence::{SqlxBindingRepository, SqlxDeviceRepository, SqlxPatientRepository, SqlxUserRepository};
+use crate::infrastructure::persistence::{SqlxBindingRepository, SqlxDeviceRepository, SqlxHealthDataRepository, SqlxPatientRepository, SqlxUserRepository};
 
 pub mod auth;
 pub mod binding;
 pub mod device;
+pub mod healthdata;
 pub mod patient;
 pub mod user;
 
@@ -41,5 +42,9 @@ impl<'a> AppContext<'a> {
 
     pub fn auth_service(&self, jwt_config: &'a JwtConfig) -> auth::AuthAppService<'_> {
         auth::AuthAppService::new(self.pool, jwt_config)
+    }
+
+    pub fn health_service(&self) -> healthdata::HealthDataAppService<'_> {
+        healthdata::HealthDataAppService::new(self.pool)
     }
 }

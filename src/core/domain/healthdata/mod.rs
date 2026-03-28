@@ -11,5 +11,8 @@ pub mod types;
 pub mod values;
 
 pub use repository::{HealthDataQuery, HealthDataRepository, HourlyAggregation};
-pub use types::{DataQuality, DataSource, DataType, HealthData};
+pub use types::{DataQuality, DataType, HealthData};
 pub use values::*;
+
+// DataSource 从 value_object 复用
+pub use crate::core::value_object::DataSource;

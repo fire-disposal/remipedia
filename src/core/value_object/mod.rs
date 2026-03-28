@@ -93,15 +93,7 @@ pub enum UserStatus {
     Locked,
 }
 
-impl UserStatus {
-    pub fn as_str(&self) -> &'static str {
-        match self {
-            Self::Active => "active",
-            Self::Inactive => "inactive",
-            Self::Locked => "locked",
-        }
-    }
-}
+// UserStatus 使用 strum 派生 Display/EnumString，无需手动实现 as_str/from_str
 
 impl Default for UserStatus {
     fn default() -> Self {
@@ -169,7 +161,8 @@ pub enum DataSource {
     Mqtt,
     Http,
     Tcp,
-    Websocket,
+    WebSocket,
+    Internal,
 }
 
 impl Default for DataSource {

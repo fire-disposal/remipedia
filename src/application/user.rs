@@ -59,8 +59,9 @@ impl<'a> UserAppService<'a> {
         user.update_profile(req.phone, req.email, req.avatar_url);
 
         if let Some(status) = req.status {
+            use std::str::FromStr;
             let status = crate::core::domain::user::UserStatus::from_str(&status)
-                .ok_or_else(|| crate::errors::AppError::ValidationError("无效的状态".into()))?;
+                .map_err(|_| crate::errors::AppError::ValidationError("无效的状态".into()))?;
             user.set_status(status);
         }
 
@@ -109,7 +110,7 @@ fn to_response(user: &User) -> UserResponse {
         phone: user.phone().map(|s| s.to_string()),
         email: user.email().map(|s| s.to_string()),
         avatar_url: user.avatar_url().map(|s| s.to_string()),
-        status: user.status().as_str().to_string(),
+        status: user.status().to_string(),
         last_login_at: user.last_login_at(),
         created_at: user.created_at(),
     }

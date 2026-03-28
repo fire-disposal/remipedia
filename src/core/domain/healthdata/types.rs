@@ -1,10 +1,10 @@
 //! 健康数据类型定义
 
 use chrono::{DateTime, Utc};
-use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use crate::core::domain::shared::DeviceId;
+use crate::core::value_object::DataSource;
 
 /// 健康数据实体（领域层）
 #[derive(Debug, Clone)]
@@ -39,19 +39,15 @@ pub enum DataType {
     Custom(String),
 }
 
-/// 数据来源
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum DataSource {
-    Mqtt,
-    Http,
-    Tcp,
-    WebSocket,
-    Internal,
-}
+// DataSource 复用 value_object::DataSource
 
 /// 数据质量
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, strum::Display, strum::EnumString, Default
+)]
+#[strum(serialize_all = "snake_case")]
 pub enum DataQuality {
+    #[default]
     Good,
     Fair,
     Poor,
@@ -214,55 +210,10 @@ impl DataType {
     }
 }
 
-impl DataSource {
-    pub fn as_str(&self) -> &str {
-        match self {
-            Self::Mqtt => "mqtt",
-            Self::Http => "http",
-            Self::Tcp => "tcp",
-            Self::WebSocket => "websocket",
-            Self::Internal => "internal",
-        }
-    }
-
-    pub fn from_str(s: &str) -> Self {
-        match s {
-            "mqtt" => Self::Mqtt,
-            "http" => Self::Http,
-            "tcp" => Self::Tcp,
-            "websocket" => Self::WebSocket,
-            "internal" => Self::Internal,
-            _ => Self::Internal,
-        }
-    }
-}
-
-impl DataQuality {
-    pub fn as_str(&self) -> &str {
-        match self {
-            Self::Good => "good",
-            Self::Fair => "fair",
-            Self::Poor => "poor",
-            Self::Invalid => "invalid",
-        }
-    }
-
-    pub fn from_str(s: &str) -> Self {
-        match s {
-            "good" => Self::Good,
-            "fair" => Self::Fair,
-            "poor" => Self::Poor,
-            "invalid" => Self::Invalid,
-            _ => Self::Good,
-        }
-    }
-}
-
-impl Default for DataQuality {
-    fn default() -> Self {
-        Self::Good
-    }
-}
+// DataSource 复用 value_object::DataSource，无需额外实现
+// DataQuality 使用 strum 派生 Display/EnumString/Default
+// - to_string() 替代 as_str()
+// - EnumString::from_str() 替代手动 from_str()
 
 
 

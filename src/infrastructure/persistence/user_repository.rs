@@ -21,12 +21,8 @@ impl<'a> SqlxUserRepository<'a> {
     }
 
     fn to_entity(row: UserRow) -> DomainResult<User> {
-        let status = match row.status.as_str() {
-            "active" => UserStatus::Active,
-            "inactive" => UserStatus::Inactive,
-            "locked" => UserStatus::Locked,
-            _ => UserStatus::Active,
-        };
+        // row.status 已经是 UserStatus 类型（sqlx::Type 自动映射）
+        let status = row.status;
 
         // row.role 已经是 UserRole 类型（sqlx::Type 自动映射）
         let role = row.role;
@@ -109,7 +105,7 @@ impl<'a> UserRepository for SqlxUserRepository<'a> {
         .bind(user.phone())
         .bind(user.email())
         .bind(user.avatar_url())
-        .bind(user.status().as_str())
+        .bind(user.status().to_string())
         .bind(user.last_login_at())
         .bind(user.created_at())
         .bind(user.updated_at())

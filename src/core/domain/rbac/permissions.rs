@@ -1,9 +1,13 @@
 //! 系统权限常量定义
 
 use std::collections::HashSet;
+use std::str::FromStr;
 
 /// 权限域
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Hash, strum::Display, strum::EnumString
+)]
+#[strum(serialize_all = "snake_case")]
 pub enum PermissionDomain {
     User,
     Patient,
@@ -14,20 +18,14 @@ pub enum PermissionDomain {
 }
 
 impl PermissionDomain {
-    pub fn as_str(&self) -> &'static str {
-        match self {
-            Self::User => "user",
-            Self::Patient => "patient",
-            Self::Device => "device",
-            Self::Binding => "binding",
-            Self::Data => "data",
-            Self::System => "system",
-        }
-    }
+    // as_str 通过 strum::Display 的 to_string() 提供
 }
 
 /// 操作类型
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Hash, strum::Display, strum::EnumString
+)]
+#[strum(serialize_all = "snake_case")]
 pub enum PermissionAction {
     Create,
     Read,
@@ -37,15 +35,7 @@ pub enum PermissionAction {
 }
 
 impl PermissionAction {
-    pub fn as_str(&self) -> &'static str {
-        match self {
-            Self::Create => "create",
-            Self::Read => "read",
-            Self::Update => "update",
-            Self::Delete => "delete",
-            Self::Manage => "manage",
-        }
-    }
+    // as_str 通过 strum::Display 的 to_string() 提供
 }
 
 /// 系统内置权限
@@ -92,7 +82,7 @@ impl SystemPermissions {
 
     /// 构建权限字符串
     pub fn build(domain: PermissionDomain, action: PermissionAction) -> String {
-        format!("{}:{}", domain.as_str(), action.as_str())
+        format!("{}:{}", domain, action)
     }
 
     /// 获取管理员所有权限
@@ -131,24 +121,8 @@ impl SystemPermissions {
             return None;
         }
 
-        let domain = match parts[0] {
-            "user" => PermissionDomain::User,
-            "patient" => PermissionDomain::Patient,
-            "device" => PermissionDomain::Device,
-            "binding" => PermissionDomain::Binding,
-            "data" => PermissionDomain::Data,
-            "system" => PermissionDomain::System,
-            _ => return None,
-        };
-
-        let action = match parts[1] {
-            "create" => PermissionAction::Create,
-            "read" => PermissionAction::Read,
-            "update" => PermissionAction::Update,
-            "delete" => PermissionAction::Delete,
-            "manage" => PermissionAction::Manage,
-            _ => return None,
-        };
+        let domain = PermissionDomain::from_str(parts[0]).ok()?;
+        let action = PermissionAction::from_str(parts[1]).ok()?;
 
         Some((domain, action))
     }

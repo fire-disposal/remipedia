@@ -21,13 +21,8 @@ pub struct User {
     updated_at: DateTime<Utc>,
 }
 
-/// 用户状态
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum UserStatus {
-    Active,
-    Inactive,
-    Locked,
-}
+// UserStatus 从 value_object 复用
+pub use crate::core::value_object::UserStatus;
 
 impl User {
     /// 创建用户
@@ -176,25 +171,6 @@ impl User {
 
     pub fn updated_at(&self) -> DateTime<Utc> {
         self.updated_at
-    }
-}
-
-impl UserStatus {
-    pub fn as_str(&self) -> &'static str {
-        match self {
-            UserStatus::Active => "active",
-            UserStatus::Inactive => "inactive",
-            UserStatus::Locked => "locked",
-        }
-    }
-
-    pub fn from_str(s: &str) -> Option<Self> {
-        match s {
-            "active" => Some(UserStatus::Active),
-            "inactive" => Some(UserStatus::Inactive),
-            "locked" => Some(UserStatus::Locked),
-            _ => None,
-        }
     }
 }
 

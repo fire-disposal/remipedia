@@ -5,10 +5,12 @@ use chrono::{DateTime, Utc};
 use sqlx::PgPool;
 use uuid::Uuid;
 
+use std::str::FromStr;
+
 use crate::core::domain::healthdata::{
-    DataQuality, DataSource, DataType, HealthData, HealthDataQuery, HealthDataRepository,
-    HourlyAggregation,
+    DataQuality, DataType, HealthData, HealthDataQuery, HealthDataRepository, HourlyAggregation,
 };
+use crate::core::value_object::DataSource;
 use crate::core::domain::shared::{DeviceId, DomainError, DomainResult, PatientId};
 use crate::core::entity::Datasheet as DatasheetRow;
 
@@ -24,7 +26,7 @@ impl<'a> SqlxHealthDataRepository<'a> {
 
     fn to_entity(&self, row: DatasheetRow) -> DomainResult<HealthData> {
         let data_type = DataType::from_str(&row.data_type);
-        let source = DataSource::from_str(&row.source);
+        let source = DataSource::from_str(&row.source).unwrap_or_default();
 
         Ok(HealthData::reconstruct(
             Uuid::nil(), // datasheet 表使用复合主键，这里简化
@@ -52,7 +54,7 @@ impl<'a> HealthDataRepository for SqlxHealthDataRepository<'a> {
         .bind(data.subject_id())
         .bind(data.data_type().as_str())
         .bind(data.payload())
-        .bind(data.source().as_str())
+        .bind(data.source().to_string())
         .execute(self.pool)
         .await
         .map_err(|e| DomainError::Validation(format!("保存健康数据失败: {}", e)))?;
@@ -75,7 +77,7 @@ impl<'a> HealthDataRepository for SqlxHealthDataRepository<'a> {
             .bind(data.subject_id())
             .bind(data.data_type().as_str())
             .bind(data.payload())
-            .bind(data.source().as_str())
+            .bind(data.source().to_string())
             .execute(&mut *tx)
             .await
             .map_err(|e| DomainError::Validation(format!("批量保存失败: {}", e)))?;

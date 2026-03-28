@@ -103,7 +103,7 @@ async fn init_admin(pool: &PgPool) -> anyhow::Result<()> {
 
     // 优先复用同名账号，避免唯一键冲突导致启动失败
     let admin = if let Some(existing_user) = user_repo.find_by_username(&admin_username).await? {
-        if existing_user.role == "admin" {
+        if existing_user.role.is_admin() {
             info!("✅ 检测到同名管理员账户，跳过创建");
             existing_user
         } else {

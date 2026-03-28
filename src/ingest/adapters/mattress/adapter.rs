@@ -2,7 +2,7 @@
 //!
 //! 无状态设计：仅负责 TCP 包解析和验证，状态由 DeviceManager 管理
 
-use crate::core::value_object::DeviceType;
+use crate::core::value_object::DeviceTypeId;
 use crate::errors::{AppError, AppResult};
 use crate::ingest::framework::{AdapterOutput, DeviceAdapter, DeviceMetadata, MessagePayload};
 use chrono::Utc;
@@ -97,7 +97,7 @@ impl MattressAdapter {
 impl DeviceAdapter for MattressAdapter {
     fn metadata(&self) -> DeviceMetadata {
         DeviceMetadata {
-            device_type: DeviceType::SmartMattress,
+            device_type: DeviceTypeId::new(DeviceTypeId::SMART_MATTRESS),
             display_name: "智能床垫".to_string(),
             description: "智能床垫设备适配器".to_string(),
             supported_data_types: vec!["smart_mattress".to_string()],

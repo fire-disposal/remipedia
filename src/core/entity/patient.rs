@@ -1,7 +1,9 @@
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, NaiveDate, Utc};
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
 use uuid::Uuid;
+
+use crate::core::value_object::{BloodType, Gender};
 
 /// 患者实体
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
@@ -24,9 +26,9 @@ pub struct NewPatient {
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
 pub struct PatientProfile {
     pub patient_id: Uuid,
-    pub date_of_birth: Option<chrono::NaiveDate>,
-    pub gender: Option<String>,
-    pub blood_type: Option<String>,
+    pub date_of_birth: Option<NaiveDate>,
+    pub gender: Option<Gender>,
+    pub blood_type: Option<BloodType>,
     pub contact_phone: Option<String>,
     pub address: Option<String>,
     pub emergency_contact: Option<String>,
@@ -45,9 +47,9 @@ pub struct PatientProfile {
 #[derive(Debug, Clone)]
 pub struct NewPatientProfile {
     pub patient_id: Uuid,
-    pub date_of_birth: Option<chrono::NaiveDate>,
-    pub gender: Option<String>,
-    pub blood_type: Option<String>,
+    pub date_of_birth: Option<NaiveDate>,
+    pub gender: Option<Gender>,
+    pub blood_type: Option<BloodType>,
     pub contact_phone: Option<String>,
     pub address: Option<String>,
     pub emergency_contact: Option<String>,

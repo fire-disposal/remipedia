@@ -23,9 +23,10 @@ impl<'a> UserService<'a> {
 
     /// 创建用户
     pub async fn create(&self, req: CreateUserRequest) -> AppResult<UserResponse> {
-        // 验证角色
-        UserRole::from_str(&req.role)
-            .ok_or_else(|| AppError::ValidationError("无效的角色".into()))?;
+        // 验证并解析角色
+        let role: UserRole = req.role
+            .parse()
+            .map_err(|_| AppError::ValidationError("无效的角色".into()))?;
 
         // 检查用户名是否存在
         if self.user_repo.exists_by_username(&req.username).await? {
@@ -41,7 +42,7 @@ impl<'a> UserService<'a> {
             .insert(&NewUser {
                 username: req.username,
                 password_hash,
-                role: req.role,
+                role,
                 phone: req.phone,
                 email: req.email,
             })
@@ -135,11 +136,11 @@ impl From<crate::core::entity::User> for UserResponse {
         Self {
             id: user.id,
             username: user.username,
-            role: user.role,
+            role: user.role.to_string(),
             phone: user.phone,
             email: user.email,
             avatar_url: user.avatar_url,
-            status: user.status,
+            status: user.status.to_string(),
             last_login_at: user.last_login_at,
             created_at: user.created_at,
         }

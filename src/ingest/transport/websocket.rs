@@ -10,7 +10,7 @@ use tokio::sync::broadcast;
 use tokio_tungstenite::{accept_async, tungstenite::Message};
 
 use crate::ingest::transport::{Transport, TransportContext};
-use crate::core::value_object::DeviceType;
+use crate::core::value_object::DeviceTypeId;
 
 pub struct WebSocketTransport {
     pub bind: String,
@@ -71,7 +71,7 @@ impl Transport for WebSocketTransport {
                             if let Ok(packet) = serde_json::to_vec(&json) {
                                 let _ = dm.process(
                                     &serial,
-                                    DeviceType::from_str("smart_mattress").unwrap(),
+                                    DeviceTypeId::new(DeviceTypeId::SMART_MATTRESS),
                                     packet,
                                     "websocket"
                                 ).await;
@@ -112,7 +112,7 @@ async fn handle_connection(
                         if let Ok(packet) = serde_json::to_vec(&json) {
                             let _ = device_manager.process(
                                 &serial,
-                                DeviceType::from_str(&default_type).unwrap(),
+                                DeviceTypeId::new(default_type.clone()),
                                 packet,
                                 "websocket"
                             ).await;

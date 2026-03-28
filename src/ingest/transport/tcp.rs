@@ -7,7 +7,7 @@ use tokio::io::AsyncReadExt;
 use tokio::net::{TcpListener, TcpStream};
 
 use crate::ingest::transport::{Transport, TransportContext};
-use crate::core::value_object::DeviceType;
+use crate::core::value_object::DeviceTypeId;
 
 pub struct TcpTransport {
     pub bind: String,
@@ -129,11 +129,8 @@ async fn process_packet(
     device_type: &str,
     packet: Vec<u8>,
 ) -> Result<(), anyhow::Error> {
-    let device_type = DeviceType::from_str(device_type)
-        .ok_or_else(|| anyhow::anyhow!("未知设备类型"))?;
-    
     device_manager
-        .process(serial, device_type, packet, "tcp")
+        .process(serial, DeviceTypeId::new(device_type), packet, "tcp")
         .await?;
 
     Ok(())

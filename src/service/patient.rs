@@ -3,6 +3,7 @@ use sqlx::PgPool;
 use uuid::Uuid;
 
 use crate::core::entity::{NewPatient, NewPatientProfile};
+
 use crate::dto::request::{
     CreatePatientProfileRequest, CreatePatientRequest, PatientQuery, UpdatePatientRequest,
 };
@@ -157,9 +158,9 @@ impl<'a> PatientService<'a> {
                 devices.push(DeviceResponse {
                     id: device.id,
                     serial_number: device.serial_number,
-                    device_type: device.device_type,
+                    device_type: device.device_type.to_string(),
                     firmware_version: device.firmware_version,
-                    status: device.status,
+                    status: device.status.to_string(),
                     metadata: device.metadata,
                     created_at: device.created_at,
                     current_binding: Some(BindingInfo {
@@ -195,8 +196,8 @@ impl<'a> PatientService<'a> {
             .insert_profile(&NewPatientProfile {
                 patient_id: *patient_id,
                 date_of_birth: req.date_of_birth,
-                gender: req.gender,
-                blood_type: req.blood_type,
+                gender: req.gender.and_then(|g| g.parse().ok()),
+                blood_type: req.blood_type.and_then(|b| b.parse().ok()),
                 contact_phone: req.contact_phone,
                 address: req.address,
                 emergency_contact: req.emergency_contact,
@@ -268,8 +269,8 @@ impl From<crate::core::entity::PatientProfile> for PatientProfileResponse {
     fn from(profile: crate::core::entity::PatientProfile) -> Self {
         Self {
             date_of_birth: profile.date_of_birth,
-            gender: profile.gender,
-            blood_type: profile.blood_type,
+            gender: profile.gender.map(|g| g.to_string()),
+            blood_type: profile.blood_type.map(|b| b.to_string()),
             contact_phone: profile.contact_phone,
             address: profile.address,
             emergency_contact: profile.emergency_contact,

@@ -55,8 +55,9 @@ impl<'a> JwtVerifier<'a> {
         }
 
         let user_id = claims.user_id()?;
-        let role = UserRole::from_str(&claims.role)
-            .ok_or_else(|| AppError::Unauthorized("无效的角色".into()))?;
+        let role: UserRole = claims.role
+            .parse()
+            .map_err(|_| AppError::Unauthorized("无效的角色".into()))?;
 
         Ok((user_id, role))
     }
@@ -95,7 +96,7 @@ impl<'a> AuthService<'a> {
             .map_err(|_| AppError::InvalidPassword)?;
 
         // 检查用户状态
-        if user.status != "active" {
+        if !matches!(user.status, crate::core::value_object::UserStatus::Active) {
             return Err(AppError::Unauthorized("用户已被禁用".into()));
         }
 
@@ -103,7 +104,7 @@ impl<'a> AuthService<'a> {
         self.user_repo.update_last_login(&user.id).await?;
 
         // 生成令牌
-        let (access_token, expires_at) = self.generate_access_token(&user.id, &user.role)?;
+        let (access_token, expires_at) = self.generate_access_token(&user.id, user.role.to_string().as_str())?;
         let refresh_token = self.generate_refresh_token(&user.id).await?;
 
         info!("用户登录成功: user_id={}", user.id);
@@ -115,9 +116,9 @@ impl<'a> AuthService<'a> {
             user: UserInfo {
                 id: user.id.to_string(),
                 username: user.username,
-                role: user.role,
+                role: user.role.to_string(),
                 email: user.email,
-                status: user.status,
+                status: user.status.to_string(),
                 created_at: user.created_at,
                 last_login_at: user.last_login_at,
             },
@@ -140,7 +141,7 @@ impl<'a> AuthService<'a> {
         let user = self.user_repo.find_by_id(&claims.user_id()?).await?;
 
         // 检查用户状态
-        if user.status != "active" {
+        if !matches!(user.status, crate::core::value_object::UserStatus::Active) {
             return Err(AppError::Unauthorized("用户已被禁用".into()));
         }
 
@@ -148,7 +149,7 @@ impl<'a> AuthService<'a> {
         self.refresh_token_repo.revoke(&token_hash).await?;
 
         // 生成新的令牌
-        let (access_token, expires_at) = self.generate_access_token(&user.id, &user.role)?;
+        let (access_token, expires_at) = self.generate_access_token(&user.id, user.role.to_string().as_str())?;
         let refresh_token = self.generate_refresh_token(&user.id).await?;
 
         info!("令牌刷新成功: user_id={}", user.id);
@@ -208,9 +209,9 @@ impl<'a> AuthService<'a> {
         Ok(UserInfo {
             id: user.id.to_string(),
             username: user.username,
-            role: user.role,
+            role: user.role.to_string(),
             email: user.email,
-            status: user.status,
+            status: user.status.to_string(),
             created_at: user.created_at,
             last_login_at: user.last_login_at,
         })
@@ -227,9 +228,9 @@ impl<'a> AuthService<'a> {
                         user: Some(UserInfo {
                             id: user.id.to_string(),
                             username: user.username,
-                            role: user.role,
+                            role: user.role.to_string(),
                             email: user.email,
-                            status: user.status,
+                            status: user.status.to_string(),
                             created_at: user.created_at,
                             last_login_at: user.last_login_at,
                         }),

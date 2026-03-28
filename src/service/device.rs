@@ -3,7 +3,7 @@ use sqlx::PgPool;
 use uuid::Uuid;
 
 use crate::core::entity::NewDevice;
-use crate::core::value_object::DeviceType;
+use crate::core::value_object::DeviceTypeId;
 use crate::dto::request::{DeviceQuery, RegisterDeviceRequest, UpdateDeviceRequest};
 use crate::api::routes::device::DeviceStatsResponse;
 use crate::dto::response::{BindingInfo, DeviceListResponse, DeviceResponse, Pagination};
@@ -25,11 +25,6 @@ impl<'a> DeviceService<'a> {
 
     /// 注册设备
     pub async fn register(&self, req: RegisterDeviceRequest) -> AppResult<DeviceResponse> {
-        // 验证设备类型
-        DeviceType::from_str(&req.device_type).ok_or_else(|| {
-            AppError::ValidationError(format!("未知设备类型: {}", req.device_type))
-        })?;
-
         // 检查序列号是否已存在
         if self
             .device_repo
@@ -43,9 +38,9 @@ impl<'a> DeviceService<'a> {
             .device_repo
             .insert(&NewDevice {
                 serial_number: req.serial_number,
-                device_type: req.device_type,
+                device_type: DeviceTypeId::new(req.device_type),
                 firmware_version: req.firmware_version,
-                status: "active".to_string(),
+                status: crate::core::value_object::DeviceStatus::Active,
                 metadata: req.metadata,
             })
             .await?;
@@ -70,16 +65,12 @@ impl<'a> DeviceService<'a> {
             return Ok(device);
         }
 
-        // 验证设备类型
-        let dev_type = DeviceType::from_str(device_type)
-            .ok_or_else(|| AppError::ValidationError(format!("未知设备类型: {}", device_type)))?;
-
         // 自动创建设备，处理并发插入导致的唯一约束冲突（serial_number 唯一）
         match self
             .device_repo
             .insert(&NewDevice::new(
                 serial_number.to_string(),
-                dev_type.as_str().to_string(),
+                DeviceTypeId::new(device_type),
             ))
             .await
         {
@@ -119,9 +110,9 @@ impl<'a> DeviceService<'a> {
         Ok(DeviceResponse {
             id: device.id,
             serial_number: device.serial_number,
-            device_type: device.device_type,
+            device_type: device.device_type.to_string(),
             firmware_version: device.firmware_version,
-            status: device.status,
+            status: device.status.to_string(),
             metadata: device.metadata,
             created_at: device.created_at,
             current_binding: binding.map(|b| BindingInfo {
@@ -190,9 +181,9 @@ impl<'a> DeviceService<'a> {
             data.push(DeviceResponse {
                 id: device.id,
                 serial_number: device.serial_number,
-                device_type: device.device_type,
+                device_type: device.device_type.to_string(),
                 firmware_version: device.firmware_version,
-                status: device.status,
+                status: device.status.to_string(),
                 metadata: device.metadata,
                 created_at: device.created_at,
                 current_binding: binding.map(|b| BindingInfo {
@@ -244,9 +235,9 @@ impl From<crate::core::entity::Device> for DeviceResponse {
         Self {
             id: device.id,
             serial_number: device.serial_number,
-            device_type: device.device_type,
+            device_type: device.device_type.to_string(),
             firmware_version: device.firmware_version,
-            status: device.status,
+            status: device.status.to_string(),
             metadata: device.metadata,
             created_at: device.created_at,
             current_binding: None,

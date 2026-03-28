@@ -12,13 +12,13 @@ use sqlx::PgPool;
 
 use crate::errors::{AppError, AppResult};
 use crate::core::entity::IngestData;
-use crate::core::value_object::DeviceType;
+use crate::core::value_object::DeviceTypeId;
 use crate::service::DataService;
 
 /// 设备元信息
 #[derive(Debug, Clone, Serialize)]
 pub struct DeviceMetadata {
-    pub device_type: DeviceType,
+    pub device_type: DeviceTypeId,
     pub display_name: String,
     pub description: String,
     pub supported_data_types: Vec<String>,
@@ -56,8 +56,8 @@ pub trait DeviceAdapter: Send + Sync {
     fn validate(&self, output: &AdapterOutput) -> AppResult<()>;
     
     /// 获取设备类型
-    fn device_type(&self) -> DeviceType {
-        self.metadata().device_type
+    fn device_type(&self) -> DeviceTypeId {
+        self.metadata().device_type.clone()
     }
 }
 
@@ -79,7 +79,7 @@ pub trait DeviceState: Send + Sync {
 #[derive(Debug, Clone, Serialize)]
 pub struct DeviceEvent {
     pub device_id: String,
-    pub device_type: DeviceType,
+    pub device_type: DeviceTypeId,
     pub event_type: String,
     pub timestamp: DateTime<Utc>,
     pub severity: Option<String>,
@@ -89,7 +89,7 @@ pub struct DeviceEvent {
 /// 设备实例
 pub struct DeviceInstance {
     pub device_id: String,
-    pub device_type: DeviceType,
+    pub device_type: DeviceTypeId,
     pub serial_number: String,
     pub last_seen: DateTime<Utc>,
     pub adapter: Arc<dyn DeviceAdapter>,
@@ -99,7 +99,7 @@ pub struct DeviceInstance {
 impl DeviceInstance {
     pub fn new(
         device_id: String,
-        device_type: DeviceType,
+        device_type: DeviceTypeId,
         serial_number: String,
         adapter: Arc<dyn DeviceAdapter>,
         state: Option<Box<dyn DeviceState>>,
@@ -149,7 +149,7 @@ impl DeviceInstance {
 /// 设备管理器
 pub struct DeviceManager {
     devices: RwLock<HashMap<String, DeviceInstance>>,
-    adapters: RwLock<HashMap<DeviceType, Arc<dyn DeviceAdapter>>>,
+    adapters: RwLock<HashMap<DeviceTypeId, Arc<dyn DeviceAdapter>>>,
     pool: Arc<PgPool>,
     idle_timeout: chrono::Duration,
 }
@@ -172,7 +172,7 @@ impl DeviceManager {
     }
     
     /// 获取适配器
-    pub async fn get_adapter(&self, device_type: &DeviceType) -> Option<Arc<dyn DeviceAdapter>> {
+    pub async fn get_adapter(&self, device_type: &DeviceTypeId) -> Option<Arc<dyn DeviceAdapter>> {
         let adapters = self.adapters.read().await;
         adapters.get(device_type).cloned()
     }
@@ -181,7 +181,7 @@ impl DeviceManager {
     pub async fn process(
         &self,
         serial_number: &str,
-        device_type: DeviceType,
+        device_type: DeviceTypeId,
         raw: Vec<u8>,
         source: &str,
     ) -> AppResult<ProcessResult> {
@@ -326,7 +326,7 @@ impl Default for DeviceManager {
 
 /// 适配器注册表
 pub struct AdapterRegistry {
-    adapters: HashMap<DeviceType, Arc<dyn DeviceAdapter>>,
+    adapters: HashMap<DeviceTypeId, Arc<dyn DeviceAdapter>>,
 }
 
 impl AdapterRegistry {
@@ -343,17 +343,17 @@ impl AdapterRegistry {
     }
     
     /// 获取适配器
-    pub fn get(&self, device_type: &DeviceType) -> Option<Arc<dyn DeviceAdapter>> {
+    pub fn get(&self, device_type: &DeviceTypeId) -> Option<Arc<dyn DeviceAdapter>> {
         self.adapters.get(device_type).cloned()
     }
     
     /// 检查是否支持该设备类型
-    pub fn is_supported(&self, device_type: &DeviceType) -> bool {
+    pub fn is_supported(&self, device_type: &DeviceTypeId) -> bool {
         self.adapters.contains_key(device_type)
     }
     
     /// 获取所有支持的设备类型
-    pub fn supported_types(&self) -> Vec<DeviceType> {
+    pub fn supported_types(&self) -> Vec<DeviceTypeId> {
         self.adapters.keys().cloned().collect()
     }
     

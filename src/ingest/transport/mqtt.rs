@@ -5,7 +5,7 @@ use rumqttc::{AsyncClient, Event, Incoming, MqttOptions};
 use std::sync::Arc;
 
 use crate::ingest::transport::{Transport, TransportContext};
-use crate::core::value_object::DeviceType;
+use crate::core::value_object::DeviceTypeId;
 
 pub struct MqttTransport {
     pub broker: String,
@@ -95,11 +95,8 @@ async fn handle_message(
         get_device_type_from_payload(&payload)
     };
 
-    let device_type = DeviceType::from_str(&device_type_str)
-        .ok_or_else(|| anyhow::anyhow!("未知设备类型: {}", device_type_str))?;
-
     device_manager
-        .process(serial_number, device_type, payload, "mqtt")
+        .process(serial_number, DeviceTypeId::new(device_type_str), payload, "mqtt")
         .await?;
 
     Ok(())

@@ -53,6 +53,19 @@ impl From<uuid::Error> for AppError {
     }
 }
 
+impl From<crate::core::domain::shared::DomainError> for AppError {
+    fn from(e: crate::core::domain::shared::DomainError) -> Self {
+        match e {
+            crate::core::domain::shared::DomainError::NotFound(msg) => AppError::NotFound(msg),
+            crate::core::domain::shared::DomainError::Validation(msg) => AppError::ValidationError(msg),
+            crate::core::domain::shared::DomainError::InvalidStateTransition { from, to } => {
+                AppError::ValidationError(format!("无效状态流转: {} -> {}", from, to))
+            }
+            _ => AppError::InternalError,
+        }
+    }
+}
+
 pub type AppResult<T> = Result<T, AppError>;
 
 impl<'r> Responder<'r, 'r> for AppError {

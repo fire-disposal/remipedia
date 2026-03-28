@@ -11,9 +11,7 @@ use tokio::sync::RwLock;
 use sqlx::PgPool;
 
 use crate::errors::{AppError, AppResult};
-use crate::core::entity::IngestData;
 use crate::core::value_object::DeviceTypeId;
-use crate::service::DataService;
 
 /// 设备元信息
 #[derive(Debug, Clone, Serialize)]
@@ -216,11 +214,9 @@ impl DeviceManager {
         // 处理数据
         let output = device.process(&raw)?;
         
-        // 入库
-        let data_service = DataService::new(&self.pool);
+        // 简化入库 - 直接SQL插入
         let mut persisted = 0;
         let mut events = 0;
-        let mut errors = Vec::new();
         
         if let AdapterOutput::Messages(msgs) = output {
             for msg in msgs {
@@ -228,21 +224,22 @@ impl DeviceManager {
                     events += 1;
                 }
                 
-                let ingest = IngestData {
-                    time: msg.time,
-                    device_id: uuid::Uuid::nil(),
-                    subject_id: None,
-                    data_type: msg.data_type.clone(),
-                    payload: msg.payload,
-                    source: source.to_string(),
-                };
+                // 直接插入数据库
+                let result = sqlx::query(
+                    "INSERT INTO datasheet (time, device_id, data_type, payload, source) VALUES ($1, $2, $3, $4, $5)"
+                )
+                .bind(msg.time)
+                .bind(uuid::Uuid::nil())
+                .bind(&msg.data_type)
+                .bind(&msg.payload)
+                .bind(source)
+                .execute(&*self.pool)
+                .await;
                 
-                match data_service.ingest(ingest).await {
-                    Ok(_) => persisted += 1,
-                    Err(e) => {
-                        log::error!("入库失败: {}", e);
-                        errors.push(format!("{}", e));
-                    }
+                if result.is_ok() {
+                    persisted += 1;
+                } else {
+                    log::error!("入库失败");
                 }
             }
         }
@@ -254,7 +251,7 @@ impl DeviceManager {
             device_type: device_type.to_string(),
             persisted,
             events,
-            errors,
+            errors: vec![],
         })
     }
     

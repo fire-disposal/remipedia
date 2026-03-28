@@ -20,7 +20,6 @@ use remipedia::ingest::transport::mqtt::MqttTransport;
 use remipedia::ingest::transport::tcp::TcpTransport;
 use remipedia::ingest::transport::websocket::WebSocketTransport;
 use remipedia::ingest::transport::{TransportContext, TransportManager};
-use remipedia::repository::UserRepository;
 
 static MIGRATOR: sqlx::migrate::Migrator = sqlx::migrate!();
 
@@ -84,12 +83,16 @@ fn hash_password(password: &str) -> Result<String, anyhow::Error> {
         .map_err(|e| anyhow::anyhow!("密码哈希失败: {}", e))
 }
 
-/// 初始化管理员账户
+/// 初始化管理员账户（简化版）
 async fn init_admin(pool: &PgPool) -> anyhow::Result<()> {
-    let user_repo = UserRepository::new(pool);
-
     // 检查是否已存在管理员
-    if user_repo.exists_admin().await? {
+    let admin_exists: bool = sqlx::query_scalar(
+        "SELECT EXISTS(SELECT 1 FROM \"user\" WHERE role = 'admin')"
+    )
+    .fetch_one(pool)
+    .await?;
+    
+    if admin_exists {
         info!("✅ 管理员账户已存在，跳过初始化");
         return Ok(());
     }
@@ -101,25 +104,19 @@ async fn init_admin(pool: &PgPool) -> anyhow::Result<()> {
     // 哈希密码
     let password_hash = hash_password(&admin_password)?;
 
-    // 优先复用同名账号，避免唯一键冲突导致启动失败
-    let admin = if let Some(existing_user) = user_repo.find_by_username(&admin_username).await? {
-        if existing_user.role.is_admin() {
-            info!("✅ 检测到同名管理员账户，跳过创建");
-            existing_user
-        } else {
-            warn!("⚠️  发现同名非管理员账户，将自动提升为管理员");
-            user_repo
-                .promote_to_admin(&existing_user.id, &password_hash)
-                .await?
-        }
-    } else {
-        user_repo
-            .create_admin(&admin_username, &password_hash)
-            .await?
-    };
+    // 创建管理员
+    sqlx::query(
+        r#"INSERT INTO "user" (username, password_hash, role) 
+           VALUES ($1, $2, 'admin')
+           ON CONFLICT (username) DO UPDATE SET role = 'admin'"#
+    )
+    .bind(&admin_username)
+    .bind(&password_hash)
+    .execute(pool)
+    .await?;
 
     info!("🎉 初始管理员账户创建成功!");
-    info!("   📧 用户名: {}", admin.username);
+    info!("   📧 用户名: {}", admin_username);
 
     // 安全提示
     if std::env::var("ADMIN_PASSWORD").is_err() {

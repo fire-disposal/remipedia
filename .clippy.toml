@@ -1,0 +1,13 @@
+# Clippy配置
+
+# 允许非关键lint，减少噪音
+# 这些lint主要是代码风格问题，不影响代码质量
+
+# 原始字符串哈希：r#"..."# 是有效的风格选择
+allow-needless-raw-string-hashes = true
+
+# 数字字面量分隔符：UUID等常量的可读性已通过注释说明
+allow-unreadable-literal = true
+
+# 文档markdown格式：类型名称反引号是可选的
+allow-doc-markdown = true

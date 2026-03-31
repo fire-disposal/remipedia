@@ -9,7 +9,7 @@ pub struct SystemRole;
 
 impl SystemRole {
     /// 超级管理员角色的 UUID（硬编码）
-    pub const SUPER_ADMIN_ID: Uuid = Uuid::from_u128(0x00000000000000000000000000000001);
+    pub const SUPER_ADMIN_ID: Uuid = Uuid::from_u128(0x0000_0000_0000_0000_0000_0000_0000_0001);
 
     /// 检查是否为超级管理员
     pub fn is_super_admin(role_id: &Uuid) -> bool {

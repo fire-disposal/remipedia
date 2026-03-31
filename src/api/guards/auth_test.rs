@@ -94,7 +94,7 @@ mod tests {
     #[test]
     fn test_parse_non_standard_paths() {
         // 直接路径（无 /api/v1 前缀）
-        let (resource, action) = parse_permission_from_path("/health", "GET");
+        let (_resource, action) = parse_permission_from_path("/health", "GET");
         assert_eq!(action, "read");
 
         // 认证路径

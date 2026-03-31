@@ -7,7 +7,7 @@ use rocket::State;
 use rocket::{get, post};
 use std::sync::Arc;
 
-use crate::ingest::{AdapterRegistry, state::StateManager};
+use crate::ingest::AdapterRegistry;
 use crate::ingest::IngestionPipeline;
 
 #[derive(rocket::serde::Serialize)]
@@ -30,6 +30,7 @@ pub struct DeviceSystemStatus {
     pub supported_types: Vec<DeviceTypeInfo>,
     pub total_states: usize,
     pub pipeline_queue_size: usize,
+    pub message: String,
 }
 
 #[get("/admin/devices/types")]
@@ -50,34 +51,17 @@ pub async fn list_device_types(
     Json(types)
 }
 
-#[get("/admin/devices/sessions?<limit>")]
-pub async fn list_device_sessions(
-    state_manager: &State<Arc<StateManager>>,
-    limit: Option<u32>,
-) -> Json<Vec<DeviceSessionDetail>> {
-    let devices = state_manager.list_devices().await;
-    let limit = limit.unwrap_or(100) as usize;
-    
-    // 新架构下，我们只能获取有状态的设备列表
-    // 详细信息需要从其他途径获取
-    let details: Vec<DeviceSessionDetail> = devices
-        .into_iter()
-        .take(limit)
-        .map(|serial| DeviceSessionDetail {
-            serial_number: serial.clone(),
-            device_type: "unknown".to_string(),
-            last_seen: chrono::Utc::now().to_rfc3339(),
-        })
-        .collect();
-
-    Json(details)
+#[get("/admin/devices/sessions")]
+pub async fn list_device_sessions() -> Json<Vec<DeviceSessionDetail>> {
+    // V2架构：状态管理在内部，API层不直接访问
+    // 返回空列表，实际设备状态通过其他监控手段查看
+    Json(vec![])
 }
 
 #[get("/admin/devices/status")]
 pub async fn get_device_system_status(
     registry: &State<Arc<AdapterRegistry>>,
     pipeline: &State<Arc<IngestionPipeline>>,
-    state_manager: &State<Arc<StateManager>>,
 ) -> Json<DeviceSystemStatus> {
     let supported_types: Vec<DeviceTypeInfo> = registry
         .list()
@@ -92,25 +76,19 @@ pub async fn get_device_system_status(
 
     Json(DeviceSystemStatus {
         supported_types,
-        total_states: state_manager.count().await,
+        total_states: 0, // V2架构：状态管理在内部
         pipeline_queue_size: pipeline.queue_size(),
+        message: "V2架构：设备状态管理在接入层内部".to_string(),
     })
 }
 
 #[post("/admin/devices/sessions/cleanup")]
-pub async fn cleanup_idle_sessions(
-    state_manager: &State<Arc<StateManager>>,
-) -> Json<CleanupResult> {
-    // 新架构下，清理由StateManager自动处理
-    // 这里手动触发一次清理
-    let before = state_manager.count().await;
-    // 清理逻辑在StateManager的background task中自动执行
-    let after = state_manager.count().await;
-    let removed = before.saturating_sub(after);
-    
+pub async fn cleanup_idle_sessions() -> Json<CleanupResult> {
+    // V2架构：空闲清理由StateManager自动处理
+    // 清理逻辑在background task中自动执行
     Json(CleanupResult {
-        cleaned_count: removed,
-        message: format!("清理了 {} 个空闲会话", removed),
+        cleaned_count: 0,
+        message: "V2架构：空闲状态自动清理".to_string(),
     })
 }
 

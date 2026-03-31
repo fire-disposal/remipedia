@@ -1,6 +1,6 @@
 //! 智能床垫适配器
 //!
-//! 无状态设计：仅负责 TCP 包解析和验证，状态由 DeviceManager 管理
+//! 使用 MattressEventEngine 进行完整的事件检测和分析
 
 use crate::core::value_object::DeviceType;
 use crate::errors::{AppError, AppResult};
@@ -8,11 +8,18 @@ use crate::ingest::framework::{AdapterOutput, DeviceAdapter, DeviceMetadata, Mes
 use chrono::Utc;
 use crc::{Crc, CRC_8_SMBUS};
 
-pub struct MattressAdapter;
+use super::event_engine::{DeviceState, MattressEventEngine};
+use super::types::{AlertLevel, MattressData, MattressEvent};
+
+pub struct MattressAdapter {
+    engine: MattressEventEngine,
+}
 
 impl MattressAdapter {
     pub fn new() -> Self {
-        Self
+        Self {
+            engine: MattressEventEngine::new(),
+        }
     }
 
     /// 解析 TCP 数据包
@@ -92,6 +99,241 @@ impl MattressAdapter {
 
         Ok(())
     }
+
+    /// 将 JSON payload 转换为 MattressData
+    fn to_mattress_data(&self, payload: &serde_json::Value) -> AppResult<MattressData> {
+        let manufacturer = Self::get_field(payload, &["manufacturer", "Ma"])
+            .and_then(|v| v.as_str())
+            .unwrap_or("HT")
+            .to_string();
+
+        let model = Self::get_field(payload, &["model", "Mo"])
+            .and_then(|v| v.as_str())
+            .unwrap_or("02")
+            .to_string();
+
+        let version = Self::get_field(payload, &["version", "V"])
+            .and_then(|v| v.as_i64())
+            .unwrap_or(1) as i32;
+
+        let serial_number = Self::get_field(payload, &["serial_number", "Sn"])
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string();
+
+        let firmware_version = Self::get_field(payload, &["firmware_version", "fv"])
+            .and_then(|v| v.as_i64())
+            .unwrap_or(1) as i32;
+
+        let status = Self::get_field(payload, &["status", "St"])
+            .and_then(|v| v.as_str())
+            .unwrap_or("normal")
+            .to_string();
+
+        let heart_rate = Self::get_field(payload, &["heart_rate", "Hb"])
+            .and_then(|v| v.as_i64())
+            .unwrap_or(0) as i32;
+
+        let breath_rate = Self::get_field(payload, &["breath_rate", "Br"])
+            .and_then(|v| v.as_i64())
+            .unwrap_or(0) as i32;
+
+        let wet_status = Self::get_field(payload, &["wet_status", "Wt"])
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
+
+        let apnea_count = Self::get_field(payload, &["apnea_count", "Od"])
+            .and_then(|v| v.as_i64())
+            .unwrap_or(0) as i32;
+
+        let weight_value = Self::get_field(payload, &["weight_value", "We"])
+            .and_then(|v| v.as_i64())
+            .unwrap_or(0) as i32;
+
+        let position = Self::get_field(payload, &["position", "P"])
+            .and_then(|v| v.as_array())
+            .map(|arr| {
+                let mut pos = [0i32; 2];
+                if let Some(x) = arr.get(0).and_then(|v| v.as_i64()) {
+                    pos[0] = x as i32;
+                }
+                if let Some(y) = arr.get(1).and_then(|v| v.as_i64()) {
+                    pos[1] = y as i32;
+                }
+                pos
+            })
+            .unwrap_or([0, 0]);
+
+        Ok(MattressData {
+            manufacturer,
+            model,
+            version,
+            serial_number,
+            firmware_version,
+            status,
+            heart_rate,
+            breath_rate,
+            wet_status,
+            apnea_count,
+            weight_value,
+            position,
+        })
+    }
+
+    /// 将 MattressEvent 转换为 MessagePayload
+    fn event_to_payload(
+        &self,
+        event: &MattressEvent,
+    ) -> (String, Option<String>, Option<String>, serde_json::Value) {
+        match event {
+            MattressEvent::BedEntry {
+                timestamp,
+                confidence,
+                weight_value,
+            } => (
+                "bed_entry".to_string(),
+                None,
+                None,
+                serde_json::json!({
+                    "event_type": "bed_entry",
+                    "timestamp": timestamp,
+                    "confidence": confidence,
+                    "weight_value": weight_value,
+                }),
+            ),
+            MattressEvent::BedExit {
+                timestamp,
+                confidence,
+                duration_minutes,
+            } => (
+                "bed_exit".to_string(),
+                Some("info".to_string()),
+                None,
+                serde_json::json!({
+                    "event_type": "bed_exit",
+                    "timestamp": timestamp,
+                    "confidence": confidence,
+                    "duration_minutes": duration_minutes,
+                }),
+            ),
+            MattressEvent::SignificantMovement {
+                timestamp,
+                intensity,
+                position_change,
+                score,
+            } => (
+                "significant_movement".to_string(),
+                Some("info".to_string()),
+                None,
+                serde_json::json!({
+                    "event_type": "significant_movement",
+                    "timestamp": timestamp,
+                    "intensity": intensity,
+                    "position_change": position_change,
+                    "score": score,
+                }),
+            ),
+            MattressEvent::VitalSignsAnomaly {
+                timestamp,
+                heart_rate,
+                heart_rate_level,
+                breath_rate,
+                breath_rate_level,
+                anomaly_type,
+            } => {
+                let severity = match (heart_rate_level, breath_rate_level) {
+                    (AlertLevel::Critical, _) | (_, AlertLevel::Critical) => "alert",
+                    (AlertLevel::Warning, _) | (_, AlertLevel::Warning) => "warning",
+                    _ => "info",
+                };
+                (
+                    anomaly_type.clone(),
+                    Some(severity.to_string()),
+                    None,
+                    serde_json::json!({
+                        "event_type": "vital_signs_anomaly",
+                        "timestamp": timestamp,
+                        "heart_rate": heart_rate,
+                        "heart_rate_level": format!("{:?}", heart_rate_level),
+                        "breath_rate": breath_rate,
+                        "breath_rate_level": format!("{:?}", breath_rate_level),
+                        "anomaly_type": anomaly_type,
+                    }),
+                )
+            }
+            MattressEvent::ApneaEvent {
+                timestamp,
+                duration_seconds,
+                severity,
+                apnea_count,
+            } => {
+                let sev = match severity {
+                    AlertLevel::Critical => "alert",
+                    AlertLevel::Warning => "warning",
+                    _ => "info",
+                };
+                (
+                    "apnea_event".to_string(),
+                    Some(sev.to_string()),
+                    None,
+                    serde_json::json!({
+                        "event_type": "apnea_event",
+                        "timestamp": timestamp,
+                        "duration_seconds": duration_seconds,
+                        "severity": format!("{:?}", severity),
+                        "apnea_count": apnea_count,
+                    }),
+                )
+            }
+            MattressEvent::MoistureAlert {
+                timestamp,
+                wet_status,
+                duration_minutes,
+                severity,
+            } => {
+                let sev = match severity {
+                    AlertLevel::Critical => "alert",
+                    AlertLevel::Warning => "warning",
+                    _ => "info",
+                };
+                (
+                    "moisture_alert".to_string(),
+                    Some(sev.to_string()),
+                    None,
+                    serde_json::json!({
+                        "event_type": "moisture_alert",
+                        "timestamp": timestamp,
+                        "wet_status": wet_status,
+                        "duration_minutes": duration_minutes,
+                        "severity": format!("{:?}", severity),
+                    }),
+                )
+            }
+            MattressEvent::ScheduledMeasurement {
+                timestamp,
+                heart_rate,
+                breath_rate,
+                apnea_count,
+                wet_status,
+                weight_value,
+                measurement_reason,
+            } => (
+                "scheduled_measurement".to_string(),
+                None,
+                None,
+                serde_json::json!({
+                    "event_type": "scheduled_measurement",
+                    "timestamp": timestamp,
+                    "heart_rate": heart_rate,
+                    "breath_rate": breath_rate,
+                    "apnea_count": apnea_count,
+                    "wet_status": wet_status,
+                    "weight_value": weight_value,
+                    "measurement_reason": measurement_reason,
+                }),
+            ),
+        }
+    }
 }
 
 impl DeviceAdapter for MattressAdapter {
@@ -99,9 +341,18 @@ impl DeviceAdapter for MattressAdapter {
         DeviceMetadata {
             device_type: DeviceType::SmartMattress,
             display_name: "智能床垫".to_string(),
-            description: "智能床垫设备适配器".to_string(),
-            supported_data_types: vec!["smart_mattress".to_string()],
-            protocol_version: "1.0".to_string(),
+            description: "智能床垫设备适配器（支持完整事件检测）".to_string(),
+            supported_data_types: vec![
+                "smart_mattress".to_string(),
+                "bed_entry".to_string(),
+                "bed_exit".to_string(),
+                "significant_movement".to_string(),
+                "vital_signs_anomaly".to_string(),
+                "apnea_event".to_string(),
+                "moisture_alert".to_string(),
+                "scheduled_measurement".to_string(),
+            ],
+            protocol_version: "2.0".to_string(),
         }
     }
 
@@ -111,74 +362,47 @@ impl DeviceAdapter for MattressAdapter {
         // 验证
         self.validate_payload(&payload)?;
 
-        // 提取字段
-        let heart_rate = Self::get_field(&payload, &["heart_rate", "Hb"])
-            .and_then(|v| v.as_i64())
-            .unwrap_or(0) as i32;
+        // 转换为 MattressData
+        let data = self.to_mattress_data(&payload)?;
 
-        let breath_rate = Self::get_field(&payload, &["breath_rate", "Br"])
-            .and_then(|v| v.as_i64())
-            .unwrap_or(0) as i32;
+        // 使用事件引擎处理（注意：这里需要 DeviceState，但在无状态设计中我们创建临时状态）
+        let mut temp_state = DeviceState::new();
+        let events = self.engine.process(&mut temp_state, &data)?;
 
-        let wet_status = Self::get_field(&payload, &["wet_status", "Wt"])
-            .and_then(|v| v.as_bool())
-            .unwrap_or(false);
-
-        let apnea_count = Self::get_field(&payload, &["apnea_count", "Od"])
-            .and_then(|v| v.as_i64())
-            .unwrap_or(0) as i32;
-
-        let weight_value = Self::get_field(&payload, &["weight_value", "We"])
-            .and_then(|v| v.as_i64())
-            .unwrap_or(0) as i32;
-
-        let position: Option<Vec<i32>> = Self::get_field(&payload, &["position", "P"])
-            .and_then(|v| v.as_array())
-            .map(|arr| {
-                arr.iter()
-                    .filter_map(|v| v.as_i64())
-                    .map(|v| v as i32)
-                    .collect()
-            });
-
-        // 检测状态（简化版：离床判断）
-        let is_on_bed = weight_value > 10;
-
-        // 检测异常
-        let (message_type, severity) = if !is_on_bed {
-            ("bed_exit".to_string(), Some("info".to_string()))
-        } else if heart_rate > 0 && (heart_rate < 40 || heart_rate > 150) {
-            (
-                "heart_rate_abnormal".to_string(),
-                Some("warning".to_string()),
-            )
-        } else if apnea_count > 10 {
-            ("apnea_alert".to_string(), Some("critical".to_string()))
-        } else if wet_status {
-            ("moisture_alert".to_string(), Some("warning".to_string()))
-        } else {
-            ("measurement".to_string(), None)
-        };
-
-        let payload_json = serde_json::json!({
-            "heart_rate": heart_rate,
-            "breath_rate": breath_rate,
-            "wet_status": wet_status,
-            "apnea_count": apnea_count,
-            "weight_value": weight_value,
-            "position": position,
+        // 生成指标数据（定时采集）
+        let is_on_bed = data.weight_value > 10;
+        let metric_payload = serde_json::json!({
+            "heart_rate": data.heart_rate,
+            "breath_rate": data.breath_rate,
+            "wet_status": data.wet_status,
+            "apnea_count": data.apnea_count,
+            "weight_value": data.weight_value,
+            "position": data.position,
             "is_on_bed": is_on_bed,
+            "status": data.status,
         });
 
-        let msg = MessagePayload {
+        let mut messages = vec![MessagePayload {
             time: Utc::now(),
             data_type: "smart_mattress".to_string(),
-            message_type: Some(message_type),
-            severity,
-            payload: payload_json,
-        };
+            message_type: Some("measurement".to_string()),
+            severity: None,
+            payload: metric_payload,
+        }];
 
-        Ok(AdapterOutput::Messages(vec![msg]))
+        // 添加事件消息
+        for event in events {
+            let (event_type, severity, _status, event_payload) = self.event_to_payload(&event);
+            messages.push(MessagePayload {
+                time: Utc::now(),
+                data_type: event_type,
+                message_type: Some("event".to_string()),
+                severity,
+                payload: event_payload,
+            });
+        }
+
+        Ok(AdapterOutput::Messages(messages))
     }
 
     fn validate(&self, output: &AdapterOutput) -> AppResult<()> {
@@ -189,7 +413,7 @@ impl DeviceAdapter for MattressAdapter {
                 }
                 for msg in msgs {
                     // 基本验证
-                    if msg.data_type != "smart_mattress" {
+                    if msg.data_type.is_empty() {
                         return Err(AppError::ValidationError("无效的数据类型".into()));
                     }
                 }

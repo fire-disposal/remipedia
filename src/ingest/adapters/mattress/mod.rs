@@ -1,13 +1,12 @@
-//! 智能床垫设备模块
-//! 
-//! 聚合床垫设备相关的所有类型、状态和适配器
+//! 智能床垫设备 - V2架构实现
+//!
+//! 将原有床垫适配器迁移到新架构
 
-mod adapter;
-mod decoder;
-mod event_engine;
-pub mod transport;
+pub mod adapter;
+pub mod decoder;
+pub mod state;
 pub mod types;
 
-pub use adapter::MattressAdapter;
+pub use adapter::MattressAdapterV2;
+pub use state::MattressStateV2;
 pub use types::*;
-pub use event_engine::MattressEventEngine;

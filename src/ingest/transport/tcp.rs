@@ -1,140 +1,78 @@
-//! TCP Transport - 简化版
+//! TCP Transport V2 - 简化版
 
-use anyhow::Result;
+use crate::errors::{AppError, AppResult};
+use crate::ingest::{DataPacket, IngestionPipeline};
+use crate::ingest::protocol::ProtocolDecoder;
 use std::net::SocketAddr;
 use std::sync::Arc;
 use tokio::io::AsyncReadExt;
 use tokio::net::{TcpListener, TcpStream};
 
-use crate::ingest::transport::{Transport, TransportContext};
-use crate::core::value_object::DeviceType;
-
-pub struct TcpTransport {
-    pub bind: String,
-    pub default_device_type: &'static str,
+pub struct TcpTransportV2 {
+    bind: SocketAddr,
 }
 
-impl TcpTransport {
-    pub fn new(bind: String) -> Self {
-        Self { 
-            bind, 
-            default_device_type: "smart_mattress" 
+impl TcpTransportV2 {
+    pub fn new(bind: impl Into<SocketAddr>) -> Self {
+        Self {
+            bind: bind.into(),
         }
     }
-}
 
-#[async_trait::async_trait]
-impl Transport for TcpTransport {
-    async fn start(&self, ctx: TransportContext) -> Result<()> {
-        let addr: SocketAddr = self.bind.parse()?;
-        let listener = TcpListener::bind(addr).await?;
-        log::info!("tcp transport listening on {}", self.bind);
+    pub async fn start(
+        &self,
+        pipeline: Arc<IngestionPipeline>,
+    ) -> AppResult<()> {
+        let listener = TcpListener::bind(self.bind).await
+            .map_err(|_| AppError::InternalError)?;
 
-        let default_type = self.default_device_type;
-        let device_manager = ctx.device_manager.clone();
+        log::info!("TCP Transport启动: {}", self.bind);
 
         loop {
-            let (stream, addr) = listener.accept().await?;
-            let device_manager = device_manager.clone();
-            let default_type = default_type;
+            let (stream, addr) = listener.accept().await
+                .map_err(|_| AppError::InternalError)?;
+
+            let pipeline = pipeline.clone();
 
             tokio::spawn(async move {
-                if let Err(e) = handle_connection(stream, device_manager, default_type).await {
-                    log::error!("tcp connection error {}: {}", addr, e);
+                if let Err(e) = Self::handle_connection(stream, addr, pipeline).await {
+                    log::error!("TCP连接处理错误 {}: {}", addr, e);
                 }
             });
         }
     }
 
-    async fn stop(&self) -> Result<()> {
+    async fn handle_connection(
+        mut stream: TcpStream,
+        addr: SocketAddr,
+        pipeline: Arc<IngestionPipeline>,
+    ) -> AppResult<()> {
+        let mut buffer = Vec::with_capacity(4096);
+        let mut temp_buf = [0u8; 1024];
+
+        loop {
+            let n = stream.read(&mut temp_buf).await
+                .map_err(|_| AppError::InternalError)?;
+
+            if n == 0 {
+                log::info!("TCP连接关闭: {}", addr);
+                break;
+            }
+
+            buffer.extend_from_slice(&temp_buf[..n]);
+
+            // 简单处理：直接提交原始数据
+            // 协议解码在Pipeline中通过Adapter处理
+            let data = std::mem::take(&mut buffer);
+            let packet = DataPacket::new(data, "tcp");
+
+            if let Err(e) = pipeline.submit(packet) {
+                log::warn!("提交到Pipeline失败: {}", e);
+            }
+
+            buffer = Vec::with_capacity(4096);
+        }
+
         Ok(())
     }
-}
-
-async fn handle_connection(
-    mut stream: TcpStream,
-    device_manager: Arc<crate::ingest::DeviceManager>,
-    default_type: &str,
-) -> Result<()> {
-    let mut buffer = vec![0u8; 4096];
-    let mut remaining = Vec::new();
-
-    loop {
-        match stream.read(&mut buffer).await {
-            Ok(0) => break,
-            Ok(n) => {
-                remaining.extend_from_slice(&buffer[..n]);
-                while let Some(packet) = extract_packet(&mut remaining)? {
-                    // 使用适配器解析包并提取序列号
-                    if let Ok(serial) = extract_serial_from_packet(&packet) {
-                        let device_manager = device_manager.clone();
-                        let device_type = default_type.to_string();
-                        
-                        tokio::spawn(async move {
-                            if let Err(e) = process_packet(&device_manager, &serial, &device_type, packet).await {
-                                log::error!("process error: {}", e);
-                            }
-                        });
-                    }
-                }
-            }
-            Err(e) => return Err(anyhow::anyhow!(e)),
-        }
-    }
-    Ok(())
-}
-
-/// 从数据包中提取序列号
-fn extract_serial_from_packet(packet: &[u8]) -> Result<String, anyhow::Error> {
-    // 解析 MessagePack
-    let value: serde_json::Value = rmp_serde::from_slice(&packet[4..])
-        .map_err(|e| anyhow::anyhow!("MessagePack 解析失败: {}", e))?;
-    
-    // 提取序列号（兼容大小写）
-    let serial = value.get("serial_number")
-        .or_else(|| value.get("Sn"))
-        .and_then(|v| v.as_str())
-        .ok_or_else(|| anyhow::anyhow!("缺少序列号"))?;
-    
-    Ok(serial.to_string())
-}
-
-fn extract_packet(buffer: &mut Vec<u8>) -> Result<Option<Vec<u8>>, anyhow::Error> {
-    if buffer.len() < 4 {
-        return Ok(None);
-    }
-    if buffer[0] != 0xab || buffer[1] != 0xcd {
-        for i in 1..buffer.len().saturating_sub(1) {
-            if buffer[i] == 0xab && buffer[i + 1] == 0xcd {
-                buffer.drain(..i);
-                return extract_packet(buffer);
-            }
-        }
-        buffer.clear();
-        return Ok(None);
-    }
-    let data_len = buffer[2] as usize;
-    let total_len = data_len + 4;
-    if buffer.len() < total_len {
-        return Ok(None);
-    }
-    let packet = buffer[..total_len].to_vec();
-    buffer.drain(..total_len);
-    Ok(Some(packet))
-}
-
-async fn process_packet(
-    device_manager: &Arc<crate::ingest::DeviceManager>,
-    serial: &str,
-    device_type: &str,
-    packet: Vec<u8>,
-) -> Result<(), anyhow::Error> {
-    let device_type = DeviceType::from_str(device_type)
-        .ok_or_else(|| anyhow::anyhow!("未知设备类型"))?;
-    
-    device_manager
-        .process(serial, device_type, packet, "tcp")
-        .await?;
-
-    Ok(())
 }

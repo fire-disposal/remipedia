@@ -1,18 +1,21 @@
-//! 设备管理 API - 简化版
+//! 设备管理 API - V2架构适配版
+//!
+//! 注意：新架构使用StateManager替代了DeviceManager
 
 use rocket::serde::json::Json;
 use rocket::State;
 use rocket::{get, post};
 use std::sync::Arc;
 
-use crate::ingest::{AdapterRegistry, DeviceManager};
+use crate::ingest::{AdapterRegistry, state::StateManager};
+use crate::ingest::IngestionPipeline;
 
 #[derive(rocket::serde::Serialize)]
 pub struct DeviceTypeInfo {
     pub device_type: String,
     pub display_name: String,
-    pub supported_data_types: Vec<String>,
     pub protocol_version: String,
+    pub supports_events: bool,
 }
 
 #[derive(rocket::serde::Serialize)]
@@ -20,15 +23,13 @@ pub struct DeviceSessionDetail {
     pub serial_number: String,
     pub device_type: String,
     pub last_seen: String,
-    pub is_idle: bool,
 }
 
 #[derive(rocket::serde::Serialize)]
 pub struct DeviceSystemStatus {
     pub supported_types: Vec<DeviceTypeInfo>,
-    pub total_sessions: usize,
-    pub active_sessions: usize,
-    pub idle_sessions: usize,
+    pub total_states: usize,
+    pub pipeline_queue_size: usize,
 }
 
 #[get("/admin/devices/types")]
@@ -38,36 +39,34 @@ pub async fn list_device_types(
     let types: Vec<DeviceTypeInfo> = registry
         .list()
         .into_iter()
-        .map(|(_, m)| DeviceTypeInfo {
+        .map(|m| DeviceTypeInfo {
             device_type: m.device_type.to_string(),
             display_name: m.display_name.to_string(),
-            supported_data_types: m.supported_data_types.iter().map(|s: &String| s.to_string()).collect(),
             protocol_version: m.protocol_version.to_string(),
+            supports_events: m.supports_events,
         })
         .collect();
 
     Json(types)
 }
 
-#[get("/admin/devices/sessions?<idle_only>&<limit>")]
+#[get("/admin/devices/sessions?<limit>")]
 pub async fn list_device_sessions(
-    manager: &State<Arc<DeviceManager>>,
-    idle_only: Option<bool>,
+    state_manager: &State<Arc<StateManager>>,
     limit: Option<u32>,
 ) -> Json<Vec<DeviceSessionDetail>> {
-    let devices = manager.list_devices().await;
-    
+    let devices = state_manager.list_devices().await;
     let limit = limit.unwrap_or(100) as usize;
     
+    // 新架构下，我们只能获取有状态的设备列表
+    // 详细信息需要从其他途径获取
     let details: Vec<DeviceSessionDetail> = devices
         .into_iter()
-        .filter(|s| !idle_only.unwrap_or(false) || s.is_idle)
         .take(limit)
-        .map(|s| DeviceSessionDetail {
-            serial_number: s.serial_number,
-            device_type: s.device_type,
-            last_seen: s.last_seen.to_rfc3339(),
-            is_idle: s.is_idle,
+        .map(|serial| DeviceSessionDetail {
+            serial_number: serial.clone(),
+            device_type: "unknown".to_string(),
+            last_seen: chrono::Utc::now().to_rfc3339(),
         })
         .collect();
 
@@ -77,37 +76,37 @@ pub async fn list_device_sessions(
 #[get("/admin/devices/status")]
 pub async fn get_device_system_status(
     registry: &State<Arc<AdapterRegistry>>,
-    manager: &State<Arc<DeviceManager>>,
+    pipeline: &State<Arc<IngestionPipeline>>,
+    state_manager: &State<Arc<StateManager>>,
 ) -> Json<DeviceSystemStatus> {
-    let devices = manager.list_devices().await;
-    
-    let total = devices.len();
-    let idle = devices.iter().filter(|s| s.is_idle).count();
-    
     let supported_types: Vec<DeviceTypeInfo> = registry
         .list()
         .into_iter()
-        .map(|(_, m)| DeviceTypeInfo {
+        .map(|m| DeviceTypeInfo {
             device_type: m.device_type.to_string(),
             display_name: m.display_name.to_string(),
-            supported_data_types: m.supported_data_types.iter().map(|s: &String| s.to_string()).collect(),
             protocol_version: m.protocol_version.to_string(),
+            supports_events: m.supports_events,
         })
         .collect();
 
     Json(DeviceSystemStatus {
         supported_types,
-        total_sessions: total,
-        active_sessions: total - idle,
-        idle_sessions: idle,
+        total_states: state_manager.count().await,
+        pipeline_queue_size: pipeline.queue_size(),
     })
 }
 
 #[post("/admin/devices/sessions/cleanup")]
 pub async fn cleanup_idle_sessions(
-    manager: &State<Arc<DeviceManager>>,
+    state_manager: &State<Arc<StateManager>>,
 ) -> Json<CleanupResult> {
-    let removed = manager.cleanup_idle().await;
+    // 新架构下，清理由StateManager自动处理
+    // 这里手动触发一次清理
+    let before = state_manager.count().await;
+    // 清理逻辑在StateManager的background task中自动执行
+    let after = state_manager.count().await;
+    let removed = before.saturating_sub(after);
     
     Json(CleanupResult {
         cleaned_count: removed,

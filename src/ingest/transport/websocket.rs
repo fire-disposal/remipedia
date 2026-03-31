@@ -1,144 +1,100 @@
-//! WebSocket Transport
+//! WebSocket Transport V2 - 简化版
 
-use anyhow::Result;
-use async_trait::async_trait;
-use futures_util::StreamExt;
+use crate::errors::{AppError, AppResult};
+use crate::ingest::{DataPacket, IngestionPipeline};
+use futures_util::{SinkExt, StreamExt};
 use std::net::SocketAddr;
 use std::sync::Arc;
 use tokio::net::TcpListener;
-use tokio::sync::broadcast;
-use tokio_tungstenite::{accept_async, tungstenite::Message};
+use tokio_tungstenite::accept_async;
 
-use crate::ingest::transport::{Transport, TransportContext};
-use crate::core::value_object::DeviceType;
-
-pub struct WebSocketTransport {
-    pub bind: String,
-    pub default_device_type: &'static str,
+pub struct WebSocketTransportV2 {
+    bind: SocketAddr,
 }
 
-impl WebSocketTransport {
-    pub fn new(bind: String) -> Self {
+impl WebSocketTransportV2 {
+    pub fn new(bind: impl Into<SocketAddr>) -> Self {
         Self {
-            bind,
-            default_device_type: "smart_mattress",
+            bind: bind.into(),
         }
     }
 
-    /// 解析设备类型，如果是无效值则记录错误并返回默认值
-    fn parse_device_type_or_default(s: &str) -> DeviceType {
-        DeviceType::from_str(s)
-            .unwrap_or_else(|| {
-                log::warn!("无效的设备类型 '{}', 使用默认类型 'smart_mattress'", s);
-                DeviceType::SmartMattress
-            })
-    }
-}
+    pub async fn start(
+        &self,
+        pipeline: Arc<IngestionPipeline>,
+    ) -> AppResult<()> {
+        let listener = TcpListener::bind(self.bind).await
+            .map_err(|e| AppError::InternalError)?;
 
-#[async_trait]
-impl Transport for WebSocketTransport {
-    async fn start(&self, ctx: TransportContext) -> Result<()> {
-        let addr: SocketAddr = self.bind.parse()?;
-        let listener = TcpListener::bind(addr).await?;
-        log::info!("websocket transport listening on {}", self.bind);
+        log::info!("WebSocket Transport启动: {}", self.bind);
 
-        let (broadcast_tx, _) = broadcast::channel(1000);
-        let broadcast_tx_clone = broadcast_tx.clone();
+        loop {
+            let (stream, addr) = listener.accept().await
+                .map_err(|e| AppError::InternalError)?;
 
-        let device_manager = ctx.device_manager.clone();
-        let default_type = self.default_device_type.to_string();
+            let pipeline = pipeline.clone();
 
-        tokio::spawn(async move {
-            loop {
-                if let Ok((stream, addr)) = listener.accept().await {
-                    let tx = broadcast_tx_clone.clone();
-                    let dm = device_manager.clone();
-                    let dt = default_type.clone();
-
-                    tokio::spawn(async move {
-                        if let Err(e) = handle_connection(stream, dm, dt, tx).await {
-                            log::error!("ws connection error {}: {}", addr, e);
-                        }
-                    });
+            tokio::spawn(async move {
+                if let Err(e) = Self::handle_connection(stream, addr, pipeline).await {
+                    log::error!("WebSocket连接错误 {}: {}", addr, e);
                 }
-            }
-        });
-
-        let dm = ctx.device_manager;
-        let mut rx = broadcast_tx.subscribe();
-
-        tokio::spawn(async move {
-            while let Ok(msg) = rx.recv().await {
-                if let Ok(text) = msg.into_text() {
-                    if let Ok(json) = serde_json::from_str::<serde_json::Value>(&text) {
-                        let serial = json.get("serial_number")
-                            .or_else(|| json.get("sn"))
-                            .and_then(|v| v.as_str())
-                            .map(String::from);
-
-                        if let Some(serial) = serial {
-                            if let Ok(packet) = serde_json::to_vec(&json) {
-                                let _ = dm.process(
-                                    &serial,
-                                    Self::parse_device_type_or_default("smart_mattress"),
-                                    packet,
-                                    "websocket"
-                                ).await;
-                            }
-                        }
-                    }
-                }
-            }
-        });
-
-        Ok(())
+            });
+        }
     }
 
-    async fn stop(&self) -> Result<()> {
-        Ok(())
-    }
-}
+    async fn handle_connection(
+        stream: tokio::net::TcpStream,
+        addr: std::net::SocketAddr,
+        pipeline: Arc<IngestionPipeline>,
+    ) -> AppResult<()> {
+        let ws_stream = accept_async(stream).await
+            .map_err(|e| AppError::InternalError)?;
 
-async fn handle_connection(
-    stream: tokio::net::TcpStream,
-    device_manager: Arc<crate::ingest::DeviceManager>,
-    default_type: String,
-    broadcast_tx: broadcast::Sender<Message>,
-) -> Result<()> {
-    let ws_stream = accept_async(stream).await?;
-    let (_write, mut read) = ws_stream.split();
+        log::info!("WebSocket连接建立: {}", addr);
 
-    while let Some(msg) = read.next().await {
-        match msg {
-            Ok(Message::Text(text)) => {
-                if let Ok(json) = serde_json::from_str::<serde_json::Value>(&text) {
-                    let serial = json.get("serial_number")
+        let (mut write, mut read) = ws_stream.split();
+
+        while let Some(msg) = read.next().await {
+            let msg = msg.map_err(|e| AppError::InternalError)?;
+
+            if msg.is_text() {
+                let payload = msg.into_data();
+
+                // 从JSON提取设备信息
+                let (serial, device_type) = if let Ok(json) =
+                    serde_json::from_slice::<serde_json::Value>(&payload)
+                {
+                    let serial = json
+                        .get("serial_number")
                         .or_else(|| json.get("sn"))
                         .and_then(|v| v.as_str())
-                        .map(String::from);
+                        .unwrap_or("unknown")
+                        .to_string();
 
-                    if let Some(serial) = serial {
-                        if let Ok(packet) = serde_json::to_vec(&json) {
-                            let _ = device_manager.process(
-                                &serial,
-                                WebSocketTransport::parse_device_type_or_default(&default_type),
-                                packet,
-                                "websocket"
-                            ).await;
-                        }
-                    }
+                    let device_type = json
+                        .get("device_type")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("unknown")
+                        .to_string();
 
-                    let _ = broadcast_tx.send(Message::Text(text));
+                    (serial, device_type)
+                } else {
+                    ("unknown".to_string(), "unknown".to_string())
+                };
+
+                let packet = DataPacket::new(payload.to_vec(), "websocket")
+                    .with_serial(serial)
+                    .with_device_type(device_type);
+
+                if let Err(e) = pipeline.submit(packet) {
+                    log::warn!("提交到Pipeline失败: {}", e);
                 }
-            }
-            Ok(Message::Close(_)) => break,
-            Err(e) => {
-                log::error!("ws read error: {}", e);
+            } else if msg.is_close() {
                 break;
             }
-            _ => {}
         }
-    }
 
-    Ok(())
+        log::info!("WebSocket连接关闭: {}", addr);
+        Ok(())
+    }
 }

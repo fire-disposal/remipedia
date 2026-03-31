@@ -105,4 +105,16 @@ impl<'a> RefreshTokenRepository<'a> {
             None => Ok(false),
         }
     }
+
+    /// 获取用户的所有刷新令牌
+    pub async fn find_by_user(&self, user_id: &Uuid) -> AppResult<Vec<RefreshToken>> {
+        sqlx::query_as::<_, RefreshToken>(
+            r#"SELECT id, user_id, token_hash, expires_at, created_at, revoked_at
+               FROM refresh_tokens WHERE user_id = $1 ORDER BY created_at DESC"#,
+        )
+        .bind(user_id)
+        .fetch_all(self.pool)
+        .await
+        .map_err(AppError::DatabaseError)
+    }
 }

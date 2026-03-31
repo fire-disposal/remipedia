@@ -29,6 +29,24 @@ pub struct CreateBindingRequest {
     pub notes: Option<String>,
 }
 
+/// 切换绑定请求（强制换绑）
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct SwitchBindingRequest {
+    /// 设备ID
+    pub device_id: Uuid,
+    /// 新的患者ID
+    pub new_patient_id: Uuid,
+    /// 备注
+    pub notes: Option<String>,
+}
+
+/// 结束绑定请求
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct EndBindingRequest {
+    /// 备注
+    pub notes: Option<String>,
+}
+
 /// 数据查询参数
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct DataQuery {

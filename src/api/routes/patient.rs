@@ -1,4 +1,5 @@
 use rocket::serde::json::Json;
+use rocket::http::Status;
 use rocket::State;
 use rocket::{delete, get, post, put};
 use sqlx::PgPool;
@@ -22,7 +23,7 @@ use crate::service::PatientService;
     ),
     request_body = CreatePatientRequest,
     responses(
-        (status = 200, description = "创建成功", body = PatientResponse),
+        (status = 201, description = "创建成功", body = PatientResponse),
         (status = 400, description = "验证失败"),
     )
 )]
@@ -31,10 +32,10 @@ pub async fn create_patient(
     pool: &State<PgPool>,
     _user: AuthenticatedUser,
     req: Json<CreatePatientRequest>,
-) -> AppResult<Json<PatientResponse>> {
+) -> AppResult<(Status, Json<PatientResponse>)> {
     let service = PatientService::new(pool);
     let response = service.create(req.into_inner()).await?;
-    Ok(Json(response))
+    Ok((Status::Created, Json(response)))
 }
 
 /// 获取患者
@@ -165,7 +166,7 @@ pub async fn update_patient(
         ("id" = String, Path, description = "患者ID")
     ),
     responses(
-        (status = 200, description = "删除成功"),
+        (status = 204, description = "删除成功"),
         (status = 404, description = "患者不存在"),
     )
 )]
@@ -174,11 +175,11 @@ pub async fn delete_patient(
     pool: &State<PgPool>,
     _user: AuthenticatedUser,
     id: &str,
-) -> AppResult<Json<serde_json::Value>> {
+) -> AppResult<Status> {
     let id = Uuid::parse_str(id).map_err(|_| AppError::ValidationError("无效的患者 ID".into()))?;
     let service = PatientService::new(pool);
     service.delete(&id).await?;
-    Ok(Json(serde_json::json!({ "success": true })))
+    Ok(Status::NoContent)
 }
 
 /// 查询患者列表
@@ -289,7 +290,7 @@ pub async fn update_patient_profile(
         ("id" = String, Path, description = "患者ID")
     ),
     responses(
-        (status = 200, description = "删除成功"),
+        (status = 204, description = "删除成功"),
         (status = 404, description = "患者不存在"),
     )
 )]
@@ -298,11 +299,11 @@ pub async fn delete_patient_profile(
     pool: &State<PgPool>,
     _user: AuthenticatedUser,
     id: &str,
-) -> AppResult<Json<serde_json::Value>> {
+) -> AppResult<Status> {
     let id = Uuid::parse_str(id).map_err(|_| AppError::ValidationError("无效的患者 ID".into()))?;
     let service = PatientService::new(pool);
     service.delete_profile(&id).await?;
-    Ok(Json(serde_json::json!({ "success": true })))
+    Ok(Status::NoContent)
 }
 
 pub fn routes() -> Vec<rocket::Route> {

@@ -49,6 +49,28 @@ impl<'a> UserRepository<'a> {
         Ok(result.is_some())
     }
 
+    pub async fn exists_by_email(&self, email: &str) -> AppResult<bool> {
+        let result: Option<(i64,)> =
+            sqlx::query_as(r#"SELECT 1 FROM "user" WHERE email = $1 LIMIT 1"#)
+                .bind(email)
+                .fetch_optional(self.pool)
+                .await
+                .map_err(AppError::DatabaseError)?;
+
+        Ok(result.is_some())
+    }
+
+    pub async fn exists_by_phone(&self, phone: &str) -> AppResult<bool> {
+        let result: Option<(i64,)> =
+            sqlx::query_as(r#"SELECT 1 FROM "user" WHERE phone = $1 LIMIT 1"#)
+                .bind(phone)
+                .fetch_optional(self.pool)
+                .await
+                .map_err(AppError::DatabaseError)?;
+
+        Ok(result.is_some())
+    }
+
     pub async fn insert(&self, user: &NewUser) -> AppResult<User> {
         sqlx::query_as::<_, User>(
             r#"INSERT INTO "user" (username, password_hash, role, phone, email)

@@ -1,4 +1,5 @@
 use rocket::serde::json::Json;
+use rocket::http::Status;
 use rocket::State;
 use rocket::{delete, get, post, put};
 use sqlx::PgPool;
@@ -39,7 +40,7 @@ pub struct DeviceStatsResponse {
     ),
     request_body = RegisterDeviceRequest,
     responses(
-        (status = 200, description = "注册成功", body = DeviceResponse),
+        (status = 201, description = "注册成功", body = DeviceResponse),
         (status = 400, description = "验证失败或设备已存在"),
     )
 )]
@@ -48,10 +49,10 @@ pub async fn register_device(
     pool: &State<PgPool>,
     _user: AuthenticatedUser,
     req: Json<RegisterDeviceRequest>,
-) -> AppResult<Json<DeviceResponse>> {
+) -> AppResult<(Status, Json<DeviceResponse>)> {
     let service = DeviceService::new(pool);
     let response = service.register(req.into_inner()).await?;
-    Ok(Json(response))
+    Ok((Status::Created, Json(response)))
 }
 
 /// 获取设备
@@ -124,7 +125,7 @@ pub async fn update_device(
         ("id" = String, Path, description = "设备ID")
     ),
     responses(
-        (status = 200, description = "删除成功"),
+        (status = 204, description = "删除成功"),
         (status = 404, description = "设备不存在"),
     )
 )]
@@ -133,11 +134,11 @@ pub async fn delete_device(
     pool: &State<PgPool>,
     _user: AuthenticatedUser,
     id: &str,
-) -> AppResult<Json<serde_json::Value>> {
+) -> AppResult<Status> {
     let id = Uuid::parse_str(id).map_err(|_| AppError::ValidationError("无效的设备 ID".into()))?;
     let service = DeviceService::new(pool);
     service.delete(&id).await?;
-    Ok(Json(serde_json::json!({ "success": true })))
+    Ok(Status::NoContent)
 }
 
 /// 查询设备列表

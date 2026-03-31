@@ -7,9 +7,9 @@ use utoipa::OpenApi;
 use crate::api::guards::AuthenticatedUser;
 use crate::config::JwtConfig;
 use crate::dto::request::{
-    ChangePasswordRequest, LoginRequest, LogoutRequest, RefreshTokenRequest, VerifyTokenRequest,
+    ChangePasswordRequest, LoginRequest, RefreshTokenRequest, RegisterRequest, RevokeTokenRequest, VerifyTokenRequest,
 };
-use crate::dto::response::{LoginResponse, RefreshTokenResponse, UserInfo, VerifyTokenResponse};
+use crate::dto::response::{LoginResponse, RefreshTokenResponse, RegisterResponse, RevokeResponse, SessionListResponse, UserInfo, VerifyTokenResponse};
 use crate::errors::AppResult;
 use crate::service::AuthService;
 
@@ -85,7 +85,7 @@ pub async fn change_password(
     ))
 }
 
-/// 登出
+/// 登出（撤销当前用户所有令牌）
 #[utoipa::path(
     post,
     path = "/auth/logout",
@@ -93,21 +93,20 @@ pub async fn change_password(
     security(
         ("bearer_auth" = [])
     ),
-    request_body = LogoutRequest,
     responses(
         (status = 200, description = "登出成功"),
         (status = 401, description = "认证失败"),
     )
 )]
-#[post("/auth/logout", data = "<req>")]
+#[post("/auth/logout")]
 pub async fn logout(
     pool: &State<PgPool>,
     jwt_config: &State<JwtConfig>,
-    _user: AuthenticatedUser,
-    req: Json<LogoutRequest>,
+    user: AuthenticatedUser,
 ) -> AppResult<Json<serde_json::Value>> {
     let service = AuthService::new(pool, jwt_config);
-    service.logout(&req.refresh_token).await?;
+    // 撤销用户所有刷新令牌
+    service.revoke(&user.id, RevokeTokenRequest { refresh_token: None }).await?;
     Ok(Json(
         serde_json::json!({ "success": true, "message": "登出成功" }),
     ))
@@ -158,10 +157,81 @@ pub async fn verify_token(
     Ok(Json(response))
 }
 
+/// 用户注册
+#[utoipa::path(
+    post,
+    path = "/auth/register",
+    tag = "auth",
+    request_body = RegisterRequest,
+    responses(
+        (status = 201, description = "注册成功", body = RegisterResponse),
+        (status = 400, description = "注册失败"),
+        (status = 409, description = "用户名或邮箱已被使用"),
+    )
+)]
+#[post("/auth/register", data = "<req>")]
+pub async fn register(
+    pool: &State<PgPool>,
+    jwt_config: &State<JwtConfig>,
+    req: Json<RegisterRequest>,
+) -> AppResult<Json<RegisterResponse>> {
+    let service = AuthService::new(pool, jwt_config);
+    let response = service.register(req.into_inner()).await?;
+    Ok(Json(response))
+}
+
+/// 撤销令牌
+#[utoipa::path(
+    post,
+    path = "/auth/revoke",
+    tag = "auth",
+    security(
+        ("bearer_auth" = [])
+    ),
+    request_body = RevokeTokenRequest,
+    responses(
+        (status = 200, description = "撤销成功", body = RevokeResponse),
+    )
+)]
+#[post("/auth/revoke", data = "<req>")]
+pub async fn revoke_token(
+    pool: &State<PgPool>,
+    jwt_config: &State<JwtConfig>,
+    user: AuthenticatedUser,
+    req: Json<RevokeTokenRequest>,
+) -> AppResult<Json<RevokeResponse>> {
+    let service = AuthService::new(pool, jwt_config);
+    let response = service.revoke(&user.id, req.into_inner()).await?;
+    Ok(Json(response))
+}
+
+/// 获取用户会话列表
+#[utoipa::path(
+    get,
+    path = "/auth/sessions",
+    tag = "auth",
+    security(
+        ("bearer_auth" = [])
+    ),
+    responses(
+        (status = 200, description = "获取成功", body = SessionListResponse),
+    )
+)]
+#[get("/auth/sessions")]
+pub async fn list_sessions(
+    pool: &State<PgPool>,
+    jwt_config: &State<JwtConfig>,
+    user: AuthenticatedUser,
+) -> AppResult<Json<SessionListResponse>> {
+    let service = AuthService::new(pool, jwt_config);
+    let response = service.list_sessions(&user.id).await?;
+    Ok(Json(response))
+}
+
 pub fn routes() -> Vec<rocket::Route> {
-    rocket::routes![login, refresh_token, change_password, logout, get_me, verify_token]
+    rocket::routes![login, refresh_token, change_password, logout, get_me, verify_token, register, revoke_token, list_sessions]
 }
 
 #[derive(OpenApi)]
-#[openapi(paths(login, refresh_token, change_password, logout, get_me, verify_token))]
+#[openapi(paths(login, refresh_token, change_password, logout, get_me, verify_token, register, revoke_token, list_sessions))]
 pub struct AuthApiDoc;

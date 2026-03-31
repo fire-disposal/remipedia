@@ -4,7 +4,7 @@ use sqlx::PgPool;
 use uuid::Uuid;
 
 use crate::core::entity::NewBinding;
-use crate::dto::request::CreateBindingRequest;
+use crate::dto::request::{CreateBindingRequest, EndBindingRequest, SwitchBindingRequest};
 use crate::dto::response::{BindingListResponse, BindingResponse, Pagination};
 use crate::errors::{AppError, AppResult};
 use crate::repository::{BindingRepository, DeviceRepository, PatientRepository};
@@ -179,6 +179,68 @@ impl<'a> BindingService<'a> {
                 total_pages: (total + limit - 1) / limit,
             },
         })
+    }
+
+    /// 结束绑定（显式结束）
+    pub async fn end_binding(&self, binding_id: &Uuid, req: EndBindingRequest) -> AppResult<BindingResponse> {
+        // 验证绑定存在
+        let binding = self.binding_repo.find_by_id(binding_id).await?;
+        
+        // 检查是否已结束
+        if binding.ended_at.is_some() {
+            return Err(AppError::ValidationError("绑定已经结束".into()));
+        }
+
+        // 结束绑定
+        self.binding_repo
+            .end_binding(binding_id, Utc::now())
+            .await?;
+        
+        // 更新备注（如果提供了）
+        if req.notes.is_some() {
+            self.binding_repo.update_notes(binding_id, req.notes.as_deref()).await?;
+        }
+
+        info!("绑定结束成功: binding_id={}", binding_id);
+        
+        // 重新获取更新后的绑定
+        let updated = self.binding_repo.find_by_id(binding_id).await?;
+        Ok(updated.into())
+    }
+
+    /// 切换绑定（强制换绑）
+    /// 结束当前绑定并创建新绑定
+    pub async fn switch_binding(&self, req: SwitchBindingRequest) -> AppResult<BindingResponse> {
+        // 验证设备存在
+        self.device_repo.find_by_id(&req.device_id).await?;
+
+        // 验证新患者存在
+        self.patient_repo.find_by_id(&req.new_patient_id).await?;
+
+        // 结束当前有效绑定（如果存在）
+        if let Some(current) = self.binding_repo.find_active_by_device(&req.device_id).await? {
+            self.binding_repo
+                .end_binding(&current.id, Utc::now())
+                .await?;
+            info!("旧绑定已结束: binding_id={}", current.id);
+        }
+
+        // 创建新绑定
+        let new_binding = self
+            .binding_repo
+            .create(&NewBinding {
+                device_id: req.device_id,
+                patient_id: req.new_patient_id,
+                notes: req.notes,
+            })
+            .await?;
+
+        info!(
+            "绑定切换成功: device_id={}, new_patient_id={}",
+            req.device_id, req.new_patient_id
+        );
+
+        Ok(new_binding.into())
     }
 }
 

@@ -57,3 +57,43 @@ pub struct VerifyTokenResponse {
     /// 用户信息（有效时返回）
     pub user: Option<UserInfo>,
 }
+
+/// 注册响应
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct RegisterResponse {
+    /// 是否成功
+    pub success: bool,
+    /// 用户信息
+    pub user: UserInfo,
+}
+
+/// 会话信息
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct SessionInfo {
+    /// 会话ID
+    pub id: String,
+    /// 创建时间
+    pub created_at: DateTime<Utc>,
+    /// 过期时间
+    pub expires_at: DateTime<Utc>,
+    /// 状态
+    pub status: String,
+}
+
+/// 会话列表响应
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct SessionListResponse {
+    /// 会话列表
+    pub sessions: Vec<SessionInfo>,
+    /// 总数
+    pub total: i64,
+}
+
+/// 令牌撤销响应
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct RevokeResponse {
+    /// 是否成功
+    pub success: bool,
+    /// 消息
+    pub message: String,
+}

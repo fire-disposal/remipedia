@@ -1,4 +1,5 @@
 use rocket::serde::json::Json;
+use rocket::http::Status;
 use rocket::State;
 use rocket::{delete, get, post, put};
 use sqlx::PgPool;
@@ -22,7 +23,7 @@ use crate::service::UserService;
     ),
     request_body = CreateUserRequest,
     responses(
-        (status = 200, description = "创建成功", body = UserResponse),
+        (status = 201, description = "创建成功", body = UserResponse),
         (status = 400, description = "验证失败"),
         (status = 409, description = "用户名已存在"),
     )
@@ -32,10 +33,10 @@ pub async fn create_user(
     pool: &State<PgPool>,
     _admin: AdminUser,
     req: Json<CreateUserRequest>,
-) -> AppResult<Json<UserResponse>> {
+) -> AppResult<(Status, Json<UserResponse>)> {
     let service = UserService::new(pool);
     let response = service.create(req.into_inner()).await?;
-    Ok(Json(response))
+    Ok((Status::Created, Json(response)))
 }
 
 /// 获取用户
@@ -108,7 +109,7 @@ pub async fn update_user(
         ("id" = String, Path, description = "用户ID")
     ),
     responses(
-        (status = 200, description = "删除成功"),
+        (status = 204, description = "删除成功"),
         (status = 404, description = "用户不存在"),
     )
 )]
@@ -117,14 +118,14 @@ pub async fn delete_user(
     pool: &State<PgPool>,
     admin: AdminUser,
     id: &str,
-) -> AppResult<Json<serde_json::Value>> {
+) -> AppResult<Status> {
     let id = Uuid::parse_str(id).map_err(|_| AppError::ValidationError("无效的用户 ID".into()))?;
     if admin.0.id == id {
         return Err(AppError::ValidationError("不允许删除当前管理员账号".into()));
     }
     let service = UserService::new(pool);
     service.delete(&id).await?;
-    Ok(Json(serde_json::json!({ "success": true })))
+    Ok(Status::NoContent)
 }
 
 /// 查询用户列表

@@ -204,4 +204,15 @@ impl<'a> BindingRepository<'a> {
 
         Ok(result.0)
     }
+
+    /// 更新绑定备注
+    pub async fn update_notes(&self, binding_id: &Uuid, notes: Option<&str>) -> AppResult<()> {
+        sqlx::query(r#"UPDATE binding SET notes = $2 WHERE id = $1"#)
+            .bind(binding_id)
+            .bind(notes)
+            .execute(self.pool)
+            .await
+            .map_err(AppError::DatabaseError)?;
+        Ok(())
+    }
 }

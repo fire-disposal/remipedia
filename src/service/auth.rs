@@ -13,8 +13,8 @@ use crate::config::JwtConfig;
 use crate::core::auth::Claims;
 use crate::core::entity::NewRefreshToken;
 use crate::core::value_object::UserRole;
-use crate::dto::request::{ChangePasswordRequest, LoginRequest, RefreshTokenRequest, VerifyTokenRequest};
-use crate::dto::response::{LoginResponse, RefreshTokenResponse, UserInfo, VerifyTokenResponse};
+use crate::dto::request::{ChangePasswordRequest, LoginRequest, RefreshTokenRequest, RegisterRequest, RevokeTokenRequest, VerifyTokenRequest};
+use crate::dto::response::{LoginResponse, RefreshTokenResponse, RegisterResponse, RevokeResponse, SessionInfo, SessionListResponse, UserInfo, VerifyTokenResponse};
 use crate::errors::{AppError, AppResult};
 use crate::repository::{RefreshTokenRepository, UserRepository};
 
@@ -214,6 +214,96 @@ impl<'a> AuthService<'a> {
             created_at: user.created_at,
             last_login_at: user.last_login_at,
         })
+    }
+
+    /// 用户注册
+    pub async fn register(&self, req: RegisterRequest) -> AppResult<RegisterResponse> {
+        // 检查用户名是否已存在
+        if self.user_repo.exists_by_username(&req.username).await? {
+            return Err(AppError::ValidationError("用户名已存在".into()));
+        }
+
+        // 检查邮箱是否已存在
+        if let Some(ref email) = req.email {
+            if self.user_repo.exists_by_email(email).await? {
+                return Err(AppError::ValidationError("邮箱已被使用".into()));
+            }
+        }
+
+        // 检查手机号是否已存在
+        if let Some(ref phone) = req.phone {
+            if self.user_repo.exists_by_phone(phone).await? {
+                return Err(AppError::ValidationError("手机号已被使用".into()));
+            }
+        }
+
+        // 哈希密码
+        let password_hash = Self::hash_password(&req.password)?;
+
+        // 创建用户
+        let new_user = crate::core::entity::NewUser {
+            username: req.username,
+            password_hash,
+            role: "user".to_string(), // 默认角色为 user
+            phone: req.phone,
+            email: req.email,
+        };
+
+        let user = self.user_repo.insert(&new_user).await?;
+
+        info!("用户注册成功: user_id={}", user.id);
+
+        Ok(RegisterResponse {
+            success: true,
+            user: UserInfo {
+                id: user.id.to_string(),
+                username: user.username,
+                role: user.role,
+                email: user.email,
+                status: user.status,
+                created_at: user.created_at,
+                last_login_at: user.last_login_at,
+            },
+        })
+    }
+
+    /// 撤销令牌
+    pub async fn revoke(&self, user_id: &Uuid, req: RevokeTokenRequest) -> AppResult<RevokeResponse> {
+        if let Some(refresh_token) = req.refresh_token {
+            // 撤销指定的刷新令牌
+            let token_hash = Self::hash_token(&refresh_token);
+            self.refresh_token_repo.revoke(&token_hash).await?;
+            Ok(RevokeResponse {
+                success: true,
+                message: "指定的令牌已撤销".to_string(),
+            })
+        } else {
+            // 撤销用户所有刷新令牌
+            self.refresh_token_repo.revoke_all_for_user(user_id).await?;
+            Ok(RevokeResponse {
+                success: true,
+                message: "所有令牌已撤销".to_string(),
+            })
+        }
+    }
+
+    /// 获取用户会话列表
+    pub async fn list_sessions(&self, user_id: &Uuid) -> AppResult<SessionListResponse> {
+        let tokens = self.refresh_token_repo.find_by_user(user_id).await?;
+        
+        let sessions: Vec<SessionInfo> = tokens
+            .into_iter()
+            .map(|t| SessionInfo {
+                id: t.id.to_string(),
+                created_at: t.created_at,
+                expires_at: t.expires_at,
+                status: if t.revoked_at.is_some() { "revoked".to_string() } else { "active".to_string() },
+            })
+            .collect();
+
+        let total = sessions.len() as i64;
+
+        Ok(SessionListResponse { sessions, total })
     }
 
     /// 验证 Token 有效性

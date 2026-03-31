@@ -1,9 +1,11 @@
+mod admin;
 mod auth;
 mod data;
 mod device;
 mod patient;
 mod user;
 
+pub use admin::*;
 pub use auth::*;
 pub use data::*;
 pub use device::*;

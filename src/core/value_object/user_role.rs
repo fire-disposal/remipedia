@@ -1,46 +1,18 @@
-use serde::{Deserialize, Serialize};
-use std::fmt;
+use uuid::Uuid;
 
-/// 用户角色枚举
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum UserRole {
-    Admin,
-    User,
-}
+/// 系统内置角色
+///
+/// 注意：只有 SuperAdmin 是硬编码的系统角色，
+/// 其他角色全部通过数据库动态管理
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SystemRole;
 
-impl UserRole {
-    /// 从字符串解析
-    pub fn from_str(s: &str) -> Option<Self> {
-        match s.to_lowercase().as_str() {
-            "admin" => Some(Self::Admin),
-            "user" => Some(Self::User),
-            _ => None,
-        }
-    }
+impl SystemRole {
+    /// 超级管理员角色的 UUID（硬编码）
+    pub const SUPER_ADMIN_ID: Uuid = Uuid::from_u128(0x00000000000000000000000000000001);
 
-    /// 转换为字符串
-    pub fn as_str(&self) -> &'static str {
-        match self {
-            Self::Admin => "admin",
-            Self::User => "user",
-        }
-    }
-
-    /// 检查是否为管理员
-    pub fn is_admin(&self) -> bool {
-        matches!(self, Self::Admin)
-    }
-}
-
-impl fmt::Display for UserRole {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", self.as_str())
-    }
-}
-
-impl Default for UserRole {
-    fn default() -> Self {
-        Self::User
+    /// 检查是否为超级管理员
+    pub fn is_super_admin(role_id: &Uuid) -> bool {
+        *role_id == Self::SUPER_ADMIN_ID
     }
 }

@@ -3,29 +3,35 @@ use sqlx::PgPool;
 use uuid::Uuid;
 
 use crate::core::entity::NewUser;
-use crate::core::value_object::UserRole;
 use crate::dto::request::{CreateUserRequest, UpdateUserRequest, UserQuery};
 use crate::dto::response::{Pagination, UserListResponse, UserResponse};
 use crate::errors::{AppError, AppResult};
-use crate::repository::UserRepository;
+use crate::repository::{RoleRepository, UserRepository};
 use crate::service::AuthService;
 
 pub struct UserService<'a> {
     user_repo: UserRepository<'a>,
+    role_repo: RoleRepository<'a>,
 }
 
 impl<'a> UserService<'a> {
     pub fn new(pool: &'a PgPool) -> Self {
         Self {
             user_repo: UserRepository::new(pool),
+            role_repo: RoleRepository::new(pool),
         }
     }
 
     /// 创建用户
     pub async fn create(&self, req: CreateUserRequest) -> AppResult<UserResponse> {
-        // 验证角色
-        UserRole::from_str(&req.role)
-            .ok_or_else(|| AppError::ValidationError("无效的角色".into()))?;
+        // 验证角色存在
+        let role_id = Uuid::parse_str(&req.role_id)
+            .map_err(|_| AppError::ValidationError("无效的角色ID".into()))?;
+        
+        let role = self.role_repo.find_by_id(&role_id).await?;
+        if role.is_none() {
+            return Err(AppError::ValidationError("角色不存在".into()));
+        }
 
         // 检查用户名是否存在
         if self.user_repo.exists_by_username(&req.username).await? {
@@ -41,7 +47,7 @@ impl<'a> UserService<'a> {
             .insert(&NewUser {
                 username: req.username,
                 password_hash,
-                role: req.role,
+                role_id,
                 phone: req.phone,
                 email: req.email,
             })
@@ -52,17 +58,48 @@ impl<'a> UserService<'a> {
             user.id, user.username
         );
 
-        Ok(user.into())
+        // 转换为响应
+        let role = self.role_repo.find_by_id(&user.role_id).await?;
+        let role_name = role.map(|r| r.name).unwrap_or_else(|| "unknown".to_string());
+        
+        Ok(UserResponse {
+            id: user.id,
+            username: user.username,
+            role_id: user.role_id,
+            role_name,
+            phone: user.phone,
+            email: user.email,
+            avatar_url: user.avatar_url,
+            status: user.status,
+            created_at: user.created_at,
+            last_login_at: user.last_login_at,
+        })
     }
 
     /// 获取用户
     pub async fn get_by_id(&self, id: &Uuid) -> AppResult<UserResponse> {
         let user = self.user_repo.find_by_id(id).await?;
-        Ok(user.into())
+        let role = self.role_repo.find_by_id(&user.role_id).await?;
+        let role_name = role.map(|r| r.name).unwrap_or_else(|| "unknown".to_string());
+        
+        Ok(UserResponse {
+            id: user.id,
+            username: user.username,
+            role_id: user.role_id,
+            role_name,
+            phone: user.phone,
+            email: user.email,
+            avatar_url: user.avatar_url,
+            status: user.status,
+            created_at: user.created_at,
+            last_login_at: user.last_login_at,
+        })
     }
 
     /// 更新用户
-    pub async fn update(&self, id: &Uuid, req: UpdateUserRequest) -> AppResult<UserResponse> {
+    pub async fn update(
+        &self, id: &Uuid, req: UpdateUserRequest
+    ) -> AppResult<UserResponse> {
         if let Some(status) = req.status.as_deref() {
             let is_valid = matches!(status, "active" | "inactive" | "locked");
             if !is_valid {
@@ -83,20 +120,38 @@ impl<'a> UserService<'a> {
 
         info!("用户更新成功: user_id={}", user.id);
 
-        Ok(user.into())
+        let role = self.role_repo.find_by_id(&user.role_id).await?;
+        let role_name = role.map(|r| r.name).unwrap_or_else(|| "unknown".to_string());
+        
+        Ok(UserResponse {
+            id: user.id,
+            username: user.username,
+            role_id: user.role_id,
+            role_name,
+            phone: user.phone,
+            email: user.email,
+            avatar_url: user.avatar_url,
+            status: user.status,
+            created_at: user.created_at,
+            last_login_at: user.last_login_at,
+        })
     }
 
     /// 查询用户列表
-    pub async fn query(&self, query: UserQuery) -> AppResult<UserListResponse> {
+    pub async fn query(
+        &self, query: UserQuery) -> AppResult<UserListResponse> {
         let page = query.page.unwrap_or(1);
         let page_size = query.page_size.unwrap_or(20);
         let limit = page_size as i64;
         let offset = ((page - 1) * page_size) as i64;
 
+        let role_id = query.role_id.as_ref()
+            .and_then(|r| Uuid::parse_str(r).ok());
+
         let users = self
             .user_repo
             .find_all(
-                query.role.as_deref(),
+                role_id.as_ref(),
                 query.status.as_deref(),
                 limit,
                 offset,
@@ -105,43 +160,44 @@ impl<'a> UserService<'a> {
 
         let total = self
             .user_repo
-            .count(query.role.as_deref(), query.status.as_deref())
+            .count(role_id.as_ref(), query.status.as_deref())
             .await?;
 
-        let data: Vec<UserResponse> = users.into_iter().map(|u| u.into()).collect();
+        // 转换为响应
+        let mut responses = Vec::new();
+        for user in users {
+            let role = self.role_repo.find_by_id(&user.role_id).await?;
+            let role_name = role.map(|r| r.name).unwrap_or_else(|| "unknown".to_string());
+            
+            responses.push(UserResponse {
+                id: user.id,
+                username: user.username,
+                role_id: user.role_id,
+                role_name,
+                phone: user.phone,
+                email: user.email,
+                avatar_url: user.avatar_url,
+                status: user.status,
+                created_at: user.created_at,
+                last_login_at: user.last_login_at,
+            });
+        }
 
         Ok(UserListResponse {
-            data,
+            users: responses,
             pagination: Pagination {
                 page,
                 page_size,
                 total,
-                total_pages: (total + limit - 1) / limit,
             },
         })
     }
 
     /// 删除用户
-    pub async fn delete(&self, id: &Uuid) -> AppResult<()> {
+    pub async fn delete(
+        &self, id: &Uuid) -> AppResult<()> {
         self.user_repo.delete(id).await?;
         info!("用户删除成功: user_id={}", id);
         Ok(())
-    }
-}
-
-// 实体到响应的转换
-impl From<crate::core::entity::User> for UserResponse {
-    fn from(user: crate::core::entity::User) -> Self {
-        Self {
-            id: user.id,
-            username: user.username,
-            role: user.role,
-            phone: user.phone,
-            email: user.email,
-            avatar_url: user.avatar_url,
-            status: user.status,
-            last_login_at: user.last_login_at,
-            created_at: user.created_at,
-        }
     }
 }

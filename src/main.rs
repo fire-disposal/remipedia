@@ -84,13 +84,13 @@ fn hash_password(password: &str) -> Result<String, anyhow::Error> {
         .map_err(|e| anyhow::anyhow!("密码哈希失败: {}", e))
 }
 
-/// 初始化管理员账户
+/// 初始化超级管理员账户
 async fn init_admin(pool: &PgPool) -> anyhow::Result<()> {
     let user_repo = UserRepository::new(pool);
 
-    // 检查是否已存在管理员
-    if user_repo.exists_admin().await? {
-        info!("✅ 管理员账户已存在，跳过初始化");
+    // 检查是否已存在超级管理员
+    if user_repo.exists_super_admin().await? {
+        info!("✅ 超级管理员账户已存在，跳过初始化");
         return Ok(());
     }
 
@@ -101,24 +101,12 @@ async fn init_admin(pool: &PgPool) -> anyhow::Result<()> {
     // 哈希密码
     let password_hash = hash_password(&admin_password)?;
 
-    // 优先复用同名账号，避免唯一键冲突导致启动失败
-    let admin = if let Some(existing_user) = user_repo.find_by_username(&admin_username).await? {
-        if existing_user.role == "admin" {
-            info!("✅ 检测到同名管理员账户，跳过创建");
-            existing_user
-        } else {
-            warn!("⚠️  发现同名非管理员账户，将自动提升为管理员");
-            user_repo
-                .promote_to_admin(&existing_user.id, &password_hash)
-                .await?
-        }
-    } else {
-        user_repo
-            .create_admin(&admin_username, &password_hash)
-            .await?
-    };
+    // 创建超级管理员
+    let admin = user_repo
+        .create_super_admin(&admin_username, &password_hash)
+        .await?;
 
-    info!("🎉 初始管理员账户创建成功!");
+    info!("🎉 初始超级管理员账户创建成功!");
     info!("   📧 用户名: {}", admin.username);
 
     // 安全提示

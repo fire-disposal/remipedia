@@ -104,7 +104,6 @@ impl<'a> BindingService<'a> {
                 page,
                 page_size,
                 total,
-                total_pages: (total + limit - 1) / limit,
             },
         })
     }
@@ -133,7 +132,6 @@ impl<'a> BindingService<'a> {
                 page,
                 page_size,
                 total,
-                total_pages: (total + limit - 1) / limit,
             },
         })
     }
@@ -176,7 +174,6 @@ impl<'a> BindingService<'a> {
                 page,
                 page_size,
                 total,
-                total_pages: (total + limit - 1) / limit,
             },
         })
     }

@@ -1,3 +1,4 @@
+mod admin;
 mod auth;
 mod binding;
 mod data;
@@ -5,6 +6,7 @@ mod device;
 mod patient;
 mod user;
 
+pub use admin::*;
 pub use auth::*;
 pub use binding::*;
 pub use data::*;

@@ -210,7 +210,6 @@ impl<'a> DeviceService<'a> {
                 page,
                 page_size,
                 total,
-                total_pages: (total + limit - 1) / limit,
             },
         })
     }

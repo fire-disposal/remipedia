@@ -127,7 +127,6 @@ impl<'a> PatientService<'a> {
                 page,
                 page_size,
                 total,
-                total_pages: (total + limit - 1) / limit,
             },
         })
     }

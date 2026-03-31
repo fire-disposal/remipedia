@@ -80,7 +80,6 @@ impl<'a> DataService<'a> {
                 page: query.page,
                 page_size: query.page_size,
                 total,
-                total_pages: (total + query.page_size as i64 - 1) / query.page_size as i64,
             },
         })
     }

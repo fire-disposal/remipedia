@@ -10,8 +10,10 @@ pub struct UserResponse {
     pub id: Uuid,
     /// 用户名
     pub username: String,
-    /// 角色
-    pub role: String,
+    /// 角色ID
+    pub role_id: Uuid,
+    /// 角色名称
+    pub role_name: String,
     /// 手机号
     pub phone: Option<String>,
     /// 邮箱
@@ -30,7 +32,7 @@ pub struct UserResponse {
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct UserListResponse {
     /// 用户列表
-    pub data: Vec<UserResponse>,
+    pub users: Vec<UserResponse>,
     /// 分页信息
     pub pagination: Pagination,
 }
@@ -44,6 +46,4 @@ pub struct Pagination {
     pub page_size: u32,
     /// 总记录数
     pub total: i64,
-    /// 总页数
-    pub total_pages: i64,
 }

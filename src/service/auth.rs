@@ -12,11 +12,11 @@ use uuid::Uuid;
 use crate::config::JwtConfig;
 use crate::core::auth::Claims;
 use crate::core::entity::NewRefreshToken;
-use crate::core::value_object::UserRole;
+use crate::core::value_object::SystemRole;
 use crate::dto::request::{ChangePasswordRequest, LoginRequest, RefreshTokenRequest, RegisterRequest, RevokeTokenRequest, VerifyTokenRequest};
 use crate::dto::response::{LoginResponse, RefreshTokenResponse, RegisterResponse, RevokeResponse, SessionInfo, SessionListResponse, UserInfo, VerifyTokenResponse};
 use crate::errors::{AppError, AppResult};
-use crate::repository::{RefreshTokenRepository, UserRepository};
+use crate::repository::{RefreshTokenRepository, RoleRepository, UserRepository};
 
 const JWT_ISSUER: &str = "remipedia";
 const JWT_AUDIENCE: &str = "remipedia-api";
@@ -39,7 +39,9 @@ impl<'a> JwtVerifier<'a> {
     }
 
     /// 验证 Access Token
-    pub fn verify_access_token(&self, token: &str) -> AppResult<(Uuid, UserRole)> {
+    /// 返回 (user_id, role_id)
+    pub fn verify_access_token(&self, token: &str
+    ) -> AppResult<(Uuid, Uuid, Vec<Uuid>)> {
         let token_data = decode::<Claims>(
             token,
             &DecodingKey::from_secret(self.jwt_config.secret.as_bytes()),
@@ -55,15 +57,16 @@ impl<'a> JwtVerifier<'a> {
         }
 
         let user_id = claims.user_id()?;
-        let role = UserRole::from_str(&claims.role)
-            .ok_or_else(|| AppError::Unauthorized("无效的角色".into()))?;
+        let role_id = claims.role_id()?;
+        let subjects = claims.accessible_subjects();
 
-        Ok((user_id, role))
+        Ok((user_id, role_id, subjects))
     }
 }
 
 pub struct AuthService<'a> {
     user_repo: UserRepository<'a>,
+    role_repo: RoleRepository<'a>,
     refresh_token_repo: RefreshTokenRepository<'a>,
     jwt_config: &'a JwtConfig,
 }
@@ -72,13 +75,15 @@ impl<'a> AuthService<'a> {
     pub fn new(pool: &'a PgPool, jwt_config: &'a JwtConfig) -> Self {
         Self {
             user_repo: UserRepository::new(pool),
+            role_repo: RoleRepository::new(pool),
             refresh_token_repo: RefreshTokenRepository::new(pool),
             jwt_config,
         }
     }
 
     /// 用户登录
-    pub async fn login(&self, req: LoginRequest) -> AppResult<LoginResponse> {
+    pub async fn login(&self, req: LoginRequest
+    ) -> AppResult<LoginResponse> {
         // 查找用户
         let user = self
             .user_repo
@@ -102,11 +107,20 @@ impl<'a> AuthService<'a> {
         // 更新最后登录时间
         self.user_repo.update_last_login(&user.id).await?;
 
+        // 获取用户可访问的患者列表
+        let subjects = self.user_repo.get_accessible_subjects(&user.id).await?;
+
         // 生成令牌
-        let (access_token, expires_at) = self.generate_access_token(&user.id, &user.role)?;
+        let (access_token, expires_at) = self.generate_access_token(
+            &user.id, &user.role_id, &subjects
+        )?;
         let refresh_token = self.generate_refresh_token(&user.id).await?;
 
         info!("用户登录成功: user_id={}", user.id);
+
+        // 获取角色信息
+        let role = self.role_repo.find_by_id(&user.role_id).await?;
+        let role_name = role.map(|r| r.name).unwrap_or_else(|| "unknown".to_string());
 
         Ok(LoginResponse {
             success: true,
@@ -115,7 +129,8 @@ impl<'a> AuthService<'a> {
             user: UserInfo {
                 id: user.id.to_string(),
                 username: user.username,
-                role: user.role,
+                role_id: user.role_id.to_string(),
+                role_name,
                 email: user.email,
                 status: user.status,
                 created_at: user.created_at,
@@ -126,7 +141,9 @@ impl<'a> AuthService<'a> {
     }
 
     /// 刷新令牌
-    pub async fn refresh_token(&self, req: RefreshTokenRequest) -> AppResult<RefreshTokenResponse> {
+    pub async fn refresh_token(
+        &self, req: RefreshTokenRequest
+    ) -> AppResult<RefreshTokenResponse> {
         // 验证 refresh token
         let claims = self.verify_refresh_token(&req.refresh_token)?;
         let token_hash = Self::hash_token(&req.refresh_token);
@@ -147,8 +164,13 @@ impl<'a> AuthService<'a> {
         // 撤销旧的 refresh token
         self.refresh_token_repo.revoke(&token_hash).await?;
 
+        // 获取可访问患者列表
+        let subjects = self.user_repo.get_accessible_subjects(&user.id).await?;
+
         // 生成新的令牌
-        let (access_token, expires_at) = self.generate_access_token(&user.id, &user.role)?;
+        let (access_token, expires_at) = self.generate_access_token(
+            &user.id, &user.role_id, &subjects
+        )?;
         let refresh_token = self.generate_refresh_token(&user.id).await?;
 
         info!("令牌刷新成功: user_id={}", user.id);
@@ -205,10 +227,14 @@ impl<'a> AuthService<'a> {
     /// 获取当前用户信息
     pub async fn get_me(&self, user_id: &Uuid) -> AppResult<UserInfo> {
         let user = self.user_repo.find_by_id(user_id).await?;
+        let role = self.role_repo.find_by_id(&user.role_id).await?;
+        let role_name = role.map(|r| r.name).unwrap_or_else(|| "unknown".to_string());
+
         Ok(UserInfo {
             id: user.id.to_string(),
             username: user.username,
-            role: user.role,
+            role_id: user.role_id.to_string(),
+            role_name,
             email: user.email,
             status: user.status,
             created_at: user.created_at,
@@ -217,7 +243,9 @@ impl<'a> AuthService<'a> {
     }
 
     /// 用户注册
-    pub async fn register(&self, req: RegisterRequest) -> AppResult<RegisterResponse> {
+    pub async fn register(
+        &self, req: RegisterRequest
+    ) -> AppResult<RegisterResponse> {
         // 检查用户名是否已存在
         if self.user_repo.exists_by_username(&req.username).await? {
             return Err(AppError::ValidationError("用户名已存在".into()));
@@ -237,6 +265,12 @@ impl<'a> AuthService<'a> {
             }
         }
 
+        // 获取默认角色（caregiver）
+        let default_role = self.role_repo.find_by_name("caregiver").await?;
+        let role_id = default_role
+            .map(|r| r.id)
+            .unwrap_or(SystemRole::SUPER_ADMIN_ID);
+
         // 哈希密码
         let password_hash = Self::hash_password(&req.password)?;
 
@@ -244,12 +278,14 @@ impl<'a> AuthService<'a> {
         let new_user = crate::core::entity::NewUser {
             username: req.username,
             password_hash,
-            role: "user".to_string(), // 默认角色为 user
+            role_id,
             phone: req.phone,
             email: req.email,
         };
 
         let user = self.user_repo.insert(&new_user).await?;
+        let role = self.role_repo.find_by_id(&user.role_id).await?;
+        let role_name = role.map(|r| r.name).unwrap_or_else(|| "unknown".to_string());
 
         info!("用户注册成功: user_id={}", user.id);
 
@@ -258,7 +294,8 @@ impl<'a> AuthService<'a> {
             user: UserInfo {
                 id: user.id.to_string(),
                 username: user.username,
-                role: user.role,
+                role_id: user.role_id.to_string(),
+                role_name,
                 email: user.email,
                 status: user.status,
                 created_at: user.created_at,
@@ -268,7 +305,9 @@ impl<'a> AuthService<'a> {
     }
 
     /// 撤销令牌
-    pub async fn revoke(&self, user_id: &Uuid, req: RevokeTokenRequest) -> AppResult<RevokeResponse> {
+    pub async fn revoke(
+        &self, user_id: &Uuid, req: RevokeTokenRequest
+    ) -> AppResult<RevokeResponse> {
         if let Some(refresh_token) = req.refresh_token {
             // 撤销指定的刷新令牌
             let token_hash = Self::hash_token(&refresh_token);
@@ -288,7 +327,9 @@ impl<'a> AuthService<'a> {
     }
 
     /// 获取用户会话列表
-    pub async fn list_sessions(&self, user_id: &Uuid) -> AppResult<SessionListResponse> {
+    pub async fn list_sessions(
+        &self, user_id: &Uuid
+    ) -> AppResult<SessionListResponse> {
         let tokens = self.refresh_token_repo.find_by_user(user_id).await?;
         
         let sessions: Vec<SessionInfo> = tokens
@@ -307,23 +348,31 @@ impl<'a> AuthService<'a> {
     }
 
     /// 验证 Token 有效性
-    pub async fn verify_token(&self, req: VerifyTokenRequest) -> AppResult<VerifyTokenResponse> {
+    pub async fn verify_token(
+        &self, req: VerifyTokenRequest
+    ) -> AppResult<VerifyTokenResponse> {
         match JwtVerifier::new(self.jwt_config).verify_access_token(&req.access_token) {
-            Ok((user_id, _)) => {
+            Ok((user_id, _, _)) => {
                 // 获取完整用户信息
                 match self.user_repo.find_by_id(&user_id).await {
-                    Ok(user) => Ok(VerifyTokenResponse {
-                        valid: true,
-                        user: Some(UserInfo {
-                            id: user.id.to_string(),
-                            username: user.username,
-                            role: user.role,
-                            email: user.email,
-                            status: user.status,
-                            created_at: user.created_at,
-                            last_login_at: user.last_login_at,
-                        }),
-                    }),
+                    Ok(user) => {
+                        let role = self.role_repo.find_by_id(&user.role_id).await?;
+                        let role_name = role.map(|r| r.name).unwrap_or_else(|| "unknown".to_string());
+                        
+                        Ok(VerifyTokenResponse {
+                            valid: true,
+                            user: Some(UserInfo {
+                                id: user.id.to_string(),
+                                username: user.username,
+                                role_id: user.role_id.to_string(),
+                                role_name,
+                                email: user.email,
+                                status: user.status,
+                                created_at: user.created_at,
+                                last_login_at: user.last_login_at,
+                            }),
+                        })
+                    }
                     Err(_) => Ok(VerifyTokenResponse {
                         valid: false,
                         user: None,
@@ -336,8 +385,6 @@ impl<'a> AuthService<'a> {
             }),
         }
     }
-
-    /// 哈希密码
 
     /// 哈希密码
     pub fn hash_password(password: &str) -> AppResult<String> {
@@ -354,10 +401,11 @@ impl<'a> AuthService<'a> {
     fn generate_access_token(
         &self,
         user_id: &Uuid,
-        role: &str,
+        role_id: &Uuid,
+        subjects: &[Uuid],
     ) -> AppResult<(String, chrono::DateTime<Utc>)> {
         let expires_at = Utc::now() + Duration::hours(self.jwt_config.expiration_hours as i64);
-        let claims = Claims::new_access(user_id, role, expires_at, JWT_ISSUER);
+        let claims = Claims::new_access(user_id, role_id, subjects.to_vec(), expires_at, JWT_ISSUER);
 
         let token = encode(
             &Header::default(),
@@ -370,7 +418,9 @@ impl<'a> AuthService<'a> {
     }
 
     /// 生成 Refresh Token
-    async fn generate_refresh_token(&self, user_id: &Uuid) -> AppResult<String> {
+    async fn generate_refresh_token(
+        &self, user_id: &Uuid
+    ) -> AppResult<String> {
         let expires_at =
             Utc::now() + Duration::days(self.jwt_config.refresh_expiration_days as i64);
         let claims = Claims::new_refresh(user_id, expires_at, JWT_ISSUER);
@@ -396,7 +446,8 @@ impl<'a> AuthService<'a> {
     }
 
     /// 验证 Refresh Token
-    fn verify_refresh_token(&self, token: &str) -> AppResult<Claims> {
+    fn verify_refresh_token(&self, token: &str
+    ) -> AppResult<Claims> {
         let token_data = decode::<Claims>(
             token,
             &DecodingKey::from_secret(self.jwt_config.secret.as_bytes()),
@@ -416,7 +467,7 @@ impl<'a> AuthService<'a> {
 
     /// 对 token 进行哈希（用于存储）
     fn hash_token(token: &str) -> String {
-        let mut hasher = Sha256::new();
+        let mut hasher = sha2::Sha256::new();
         hasher.update(token.as_bytes());
         format!("{:x}", hasher.finalize())
     }

@@ -37,8 +37,10 @@ pub struct UserInfo {
     pub id: String,
     /// 用户名
     pub username: String,
-    /// 角色
-    pub role: String,
+    /// 角色ID
+    pub role_id: String,
+    /// 角色名称
+    pub role_name: String,
     /// 邮箱
     pub email: Option<String>,
     /// 状态

@@ -154,7 +154,7 @@ impl MattressAdapter {
             .and_then(|v| v.as_array())
             .map(|arr| {
                 let mut pos = [0i32; 2];
-                if let Some(x) = arr.get(0).and_then(|v| v.as_i64()) {
+                if let Some(x) = arr.first().and_then(|v| v.as_i64()) {
                     pos[0] = x as i32;
                 }
                 if let Some(y) = arr.get(1).and_then(|v| v.as_i64()) {

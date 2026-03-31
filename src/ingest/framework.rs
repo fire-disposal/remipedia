@@ -194,7 +194,7 @@ impl DeviceManager {
                 // 创建新设备实例
                 let new_device = DeviceInstance::new(
                     serial_number.to_string(),
-                    device_type.clone(),
+                    device_type,
                     serial_number.to_string(),
                     adapter,
                     None, // 状态可以后续添加
@@ -282,17 +282,15 @@ impl DeviceManager {
         
         devices.retain(|_, device| !device.is_idle(self.idle_timeout));
         
-        let removed = before - devices.len();
-        removed
+        
+        before - devices.len()
     }
     
     /// 获取所有设备信息
     pub async fn list_devices(&self) -> Vec<DeviceInfo> {
         let devices = self.devices.read().await;
         
-        devices
-            .iter()
-            .map(|(_id, device)| DeviceInfo {
+        devices.values().map(|device| DeviceInfo {
                 serial_number: device.serial_number.clone(),
                 device_type: device.device_type.to_string(),
                 last_seen: device.last_seen,
@@ -358,7 +356,7 @@ impl AdapterRegistry {
     pub fn list(&self) -> Vec<(DeviceType, DeviceMetadata)> {
         self.adapters
             .iter()
-            .map(|(k, v)| (k.clone(), v.metadata()))
+            .map(|(k, v)| (*k, v.metadata()))
             .collect()
     }
 }

@@ -92,18 +92,15 @@ impl<'a> DeviceService<'a> {
             }
             Err(e) => {
                 // 如果是唯一约束冲突（Postgres code 23505），说明可能是并发创建，尝试重新查询并返回已存在设备
-                match &e {
-                    AppError::DatabaseError(sqlx::Error::Database(db_err)) => {
-                        if db_err.code().map(|c| c == "23505").unwrap_or(false) {
-                            if let Some(device) =
-                                self.device_repo.find_by_serial(serial_number).await?
-                            {
-                                info!("设备已存在(并发创建): device_id={}", device.id);
-                                return Ok(device);
-                            }
+                if let AppError::DatabaseError(sqlx::Error::Database(db_err)) = &e {
+                    if db_err.code().map(|c| c == "23505").unwrap_or(false) {
+                        if let Some(device) =
+                            self.device_repo.find_by_serial(serial_number).await?
+                        {
+                            info!("设备已存在(并发创建): device_id={}", device.id);
+                            return Ok(device);
                         }
                     }
-                    _ => {}
                 }
 
                 Err(e)

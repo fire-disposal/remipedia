@@ -261,10 +261,10 @@ impl MattressEventEngine {
         }
 
         // 危险级别判断
-        if heart_rate < 40 || heart_rate > 150 {
+        if !(40..=150).contains(&heart_rate) {
             heart_rate_level = AlertLevel::Critical;
         }
-        if breath_rate < 8 || breath_rate > 30 {
+        if !(8..=30).contains(&breath_rate) {
             breath_rate_level = AlertLevel::Critical;
         }
 

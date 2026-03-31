@@ -49,7 +49,7 @@ pub enum AppError {
 
 impl From<uuid::Error> for AppError {
     fn from(_: uuid::Error) -> Self {
-        AppError::UuidError
+        Self::UuidError
     }
 }
 
@@ -58,19 +58,19 @@ pub type AppResult<T> = Result<T, AppError>;
 impl<'r> Responder<'r, 'r> for AppError {
     fn respond_to(self, req: &'r Request<'_>) -> response::Result<'r> {
         let status = match &self {
-            AppError::NotFound(_) => Status::NotFound,
-            AppError::ValidationError(_) => Status::BadRequest,
-            AppError::DeviceNotBound => Status::BadRequest,
-            AppError::BindingAlreadyExists => Status::Conflict,
-            AppError::Unauthorized(_) => Status::Unauthorized,
-            AppError::Forbidden => Status::Forbidden,
-            AppError::InvalidPassword => Status::Unauthorized,
-            AppError::UsernameExists => Status::Conflict,
-            AppError::ConfigError(_) => Status::InternalServerError,
-            AppError::UuidError => Status::BadRequest,
-            AppError::ResourceExhausted(_) => Status::ServiceUnavailable,
-            AppError::DatabaseError(_) => Status::InternalServerError,
-            AppError::InternalError => Status::InternalServerError,
+            Self::NotFound(_) => Status::NotFound,
+            Self::ValidationError(_) => Status::BadRequest,
+            Self::DeviceNotBound => Status::BadRequest,
+            Self::BindingAlreadyExists => Status::Conflict,
+            Self::Unauthorized(_) => Status::Unauthorized,
+            Self::Forbidden => Status::Forbidden,
+            Self::InvalidPassword => Status::Unauthorized,
+            Self::UsernameExists => Status::Conflict,
+            Self::ConfigError(_) => Status::InternalServerError,
+            Self::UuidError => Status::BadRequest,
+            Self::ResourceExhausted(_) => Status::ServiceUnavailable,
+            Self::DatabaseError(_) => Status::InternalServerError,
+            Self::InternalError => Status::InternalServerError,
         };
 
         let body = json!({

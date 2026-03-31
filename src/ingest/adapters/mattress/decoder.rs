@@ -72,7 +72,7 @@ pub fn decode_buffer(buf: &[u8]) -> Option<(usize, Option<JsonValue>)> {
     }
     let payload = &buf[8..total];
     let md = parse_tlv(payload);
-    return Some((total, md));
+    Some((total, md))
 }
 
 fn map_bedentry(entry: BedEntry) -> JsonValue {
@@ -149,7 +149,7 @@ fn parse_tlv(payload: &[u8]) -> Option<JsonValue> {
             idx += 2;
             continue;
         }
-        if b >= 0xA1 && b <= 0xA7 {
+        if (0xA1..=0xA7).contains(&b) {
             let l = (b - 0xA0) as usize;
             if idx + l > payload.len() {
                 break;
@@ -190,7 +190,7 @@ fn parse_tlv(payload: &[u8]) -> Option<JsonValue> {
                         JsonValue::String(format!(
                             "[{},{}]",
                             v,
-                            payload.get(idx).cloned().unwrap_or(0) as u8
+                            { payload.get(idx).cloned().unwrap_or(0) }
                         )),
                     );
                 }

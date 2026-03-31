@@ -34,7 +34,7 @@ impl<'r> FromRequest<'r> for AuthenticatedUser {
                         let verifier = JwtVerifier::new(config);
                         match verifier.verify_access_token(token) {
                             Ok((user_id, role_id, _subjects)) => {
-                                Outcome::Success(AuthenticatedUser { id: user_id, role_id })
+                                Outcome::Success(Self { id: user_id, role_id })
                             }
                             Err(e) => Outcome::Error((Status::Unauthorized, e)),
                         }
@@ -67,7 +67,7 @@ impl<'r> FromRequest<'r> for SuperAdminGuard {
         match user {
             Outcome::Success(user) => {
                 if SystemRole::is_super_admin(&user.role_id) {
-                    Outcome::Success(SuperAdminGuard(user))
+                    Outcome::Success(Self(user))
                 } else {
                     Outcome::Error((Status::Forbidden, AppError::Forbidden))
                 }
@@ -123,7 +123,7 @@ impl<'r> FromRequest<'r> for PermissionGuard {
         // 检查权限
         let role_repo = RoleRepository::new(pool);
         match role_repo.has_permission(&user.role_id, resource, action).await {
-            Ok(true) => Outcome::Success(PermissionGuard {
+            Ok(true) => Outcome::Success(Self {
                 user,
                 resource,
                 action,
@@ -145,7 +145,7 @@ pub(crate) fn parse_permission_from_path(path: &str, method: &str) -> (&'static 
         } else {
             "unknown"
         }
-    } else if parts.len() >= 1 {
+    } else if !parts.is_empty() {
         parts[0]
     } else {
         "unknown"
@@ -224,7 +224,7 @@ impl<'r> FromRequest<'r> for RequirePermission {
 
         // 从请求守卫属性获取资源/操作（通过状态传递）
         // 这里简化处理，实际应该通过路由宏传递
-        Outcome::Success(RequirePermission {
+        Outcome::Success(Self {
             resource: "any",
             action: "any",
         })

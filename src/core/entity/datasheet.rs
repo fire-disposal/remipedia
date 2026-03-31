@@ -6,22 +6,19 @@ use uuid::Uuid;
 /// 数据分类
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
+#[derive(Default)]
 pub enum DataCategory {
+    #[default]
     Metric, // 指标数据
     Event,  // 事件/告警
 }
 
-impl Default for DataCategory {
-    fn default() -> Self {
-        Self::Metric
-    }
-}
 
 impl std::fmt::Display for DataCategory {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            DataCategory::Metric => write!(f, "metric"),
-            DataCategory::Event => write!(f, "event"),
+            Self::Metric => write!(f, "metric"),
+            Self::Event => write!(f, "event"),
         }
     }
 }
@@ -31,8 +28,8 @@ impl std::str::FromStr for DataCategory {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
-            "metric" => Ok(DataCategory::Metric),
-            "event" => Ok(DataCategory::Event),
+            "metric" => Ok(Self::Metric),
+            "event" => Ok(Self::Event),
             _ => Err(format!("未知数据分类: {}", s)),
         }
     }
@@ -50,9 +47,9 @@ pub enum Severity {
 impl std::fmt::Display for Severity {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Severity::Info => write!(f, "info"),
-            Severity::Warning => write!(f, "warning"),
-            Severity::Alert => write!(f, "alert"),
+            Self::Info => write!(f, "info"),
+            Self::Warning => write!(f, "warning"),
+            Self::Alert => write!(f, "alert"),
         }
     }
 }
@@ -62,9 +59,9 @@ impl std::str::FromStr for Severity {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
-            "info" => Ok(Severity::Info),
-            "warning" => Ok(Severity::Warning),
-            "alert" => Ok(Severity::Alert),
+            "info" => Ok(Self::Info),
+            "warning" => Ok(Self::Warning),
+            "alert" => Ok(Self::Alert),
             _ => Err(format!("未知严重级别: {}", s)),
         }
     }
@@ -82,9 +79,9 @@ pub enum EventStatus {
 impl std::fmt::Display for EventStatus {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            EventStatus::Active => write!(f, "active"),
-            EventStatus::Acknowledged => write!(f, "acknowledged"),
-            EventStatus::Resolved => write!(f, "resolved"),
+            Self::Active => write!(f, "active"),
+            Self::Acknowledged => write!(f, "acknowledged"),
+            Self::Resolved => write!(f, "resolved"),
         }
     }
 }
@@ -94,9 +91,9 @@ impl std::str::FromStr for EventStatus {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
-            "active" => Ok(EventStatus::Active),
-            "acknowledged" => Ok(EventStatus::Acknowledged),
-            "resolved" => Ok(EventStatus::Resolved),
+            "active" => Ok(Self::Active),
+            "acknowledged" => Ok(Self::Acknowledged),
+            "resolved" => Ok(Self::Resolved),
             _ => Err(format!("未知状态: {}", s)),
         }
     }

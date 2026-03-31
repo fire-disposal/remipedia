@@ -1,6 +1,6 @@
 use rocket::serde::json::Json;
 use rocket::State;
-use rocket::{delete, get, post};
+use rocket::{get, post};
 use sqlx::PgPool;
 use utoipa::OpenApi;
 use uuid::Uuid;
@@ -45,9 +45,12 @@ pub async fn report_data(
         ("bearer_auth" = [])
     ),
     params(
+        ("patient_id" = Option<String>, Query, description = "患者ID筛选"),
         ("device_id" = Option<String>, Query, description = "设备ID筛选"),
-        ("subject_id" = Option<String>, Query, description = "患者ID筛选"),
         ("data_type" = Option<String>, Query, description = "数据类型筛选"),
+        ("data_category" = Option<String>, Query, description = "数据分类 (metric/event)"),
+        ("severity" = Option<String>, Query, description = "严重级别 (info/warning/alert)"),
+        ("status" = Option<String>, Query, description = "状态 (active/acknowledged/resolved)"),
         ("start_time" = Option<String>, Query, description = "开始时间 (RFC3339)"),
         ("end_time" = Option<String>, Query, description = "结束时间 (RFC3339)"),
         ("page" = Option<u32>, Query, description = "页码"),
@@ -57,13 +60,16 @@ pub async fn report_data(
         (status = 200, description = "查询成功", body = DataQueryResponse),
     )
 )]
-#[get("/data?<device_id>&<subject_id>&<data_type>&<start_time>&<end_time>&<page>&<page_size>")]
+#[get("/data?<patient_id>&<device_id>&<data_type>&<data_category>&<severity>&<status>&<start_time>&<end_time>&<page>&<page_size>")]
 pub async fn query_data(
     pool: &State<PgPool>,
     _user: AuthenticatedUser,
+    patient_id: Option<String>,
     device_id: Option<String>,
-    subject_id: Option<String>,
     data_type: Option<String>,
+    data_category: Option<String>,
+    severity: Option<String>,
+    status: Option<String>,
     start_time: Option<String>,
     end_time: Option<String>,
     page: Option<u32>,
@@ -71,10 +77,13 @@ pub async fn query_data(
 ) -> AppResult<Json<DataQueryResponse>> {
     let service = DataService::new(pool);
 
-    let query = crate::dto::DataQuery {
+    let query = crate::dto::request::DataQuery {
+        patient_id: patient_id.as_ref().and_then(|s| Uuid::parse_str(s).ok()),
         device_id: device_id.as_ref().and_then(|s| Uuid::parse_str(s).ok()),
-        subject_id: subject_id.as_ref().and_then(|s| Uuid::parse_str(s).ok()),
         data_type,
+        data_category,
+        severity,
+        status,
         start_time: start_time.as_ref().and_then(|s| {
             chrono::DateTime::parse_from_rfc3339(s)
                 .ok()
@@ -94,37 +103,9 @@ pub async fn query_data(
 }
 
 pub fn routes() -> Vec<rocket::Route> {
-    rocket::routes![report_data, query_data, delete_data]
-}
-
-/// 删除数据
-#[utoipa::path(
-    delete,
-    path = "/data/{id}",
-    tag = "data",
-    security(
-        ("bearer_auth" = [])
-    ),
-    params(
-        ("id" = String, Path, description = "数据ID")
-    ),
-    responses(
-        (status = 200, description = "删除成功"),
-        (status = 404, description = "数据不存在"),
-    )
-)]
-#[delete("/data/<id>")]
-pub async fn delete_data(
-    pool: &State<PgPool>,
-    _user: AuthenticatedUser,
-    id: &str,
-) -> AppResult<Json<serde_json::Value>> {
-    let id = Uuid::parse_str(id).map_err(|_| AppError::ValidationError("无效的数据 ID".into()))?;
-    let service = DataService::new(pool);
-    service.delete(&id).await?;
-    Ok(Json(serde_json::json!({ "success": true })))
+    rocket::routes![report_data, query_data]
 }
 
 #[derive(OpenApi)]
-#[openapi(paths(report_data, query_data, delete_data))]
+#[openapi(paths(report_data, query_data))]
 pub struct DataApiDoc;

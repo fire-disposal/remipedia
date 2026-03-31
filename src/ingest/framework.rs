@@ -11,8 +11,9 @@ use tokio::sync::RwLock;
 use sqlx::PgPool;
 
 use crate::errors::{AppError, AppResult};
-use crate::core::entity::IngestData;
+use crate::core::entity::DataPoint;
 use crate::core::value_object::DeviceType;
+use crate::repository::{BindingRepository, DeviceRepository};
 use crate::service::DataService;
 
 /// 设备元信息
@@ -114,39 +115,30 @@ impl DeviceInstance {
         }
     }
     
-    pub fn touch(&mut self) {
-        self.last_seen = Utc::now();
-    }
-    
-    pub fn is_idle(&self, timeout: chrono::Duration) -> bool {
-        Utc::now() - self.last_seen > timeout
-    }
-    
     /// 处理原始数据
     pub fn process(&mut self, raw: &[u8]) -> AppResult<AdapterOutput> {
+        // 更新最后活跃时间
+        self.last_seen = Utc::now();
+        
+        // 解析数据
         let output = self.adapter.parse(raw)?;
+        
+        // 验证数据
         self.adapter.validate(&output)?;
         
-        // 更新状态
-        if let Some(ref mut state) = self.state {
-            if let AdapterOutput::Messages(ref msgs) = output {
-                for msg in msgs {
-                    state.update(msg)?;
-                }
-            }
-        }
-        
-        self.touch();
         Ok(output)
     }
     
-    /// 获取状态快照
-    pub fn state_snapshot(&self) -> Option<Value> {
-        self.state.as_ref().map(|s| s.snapshot())
+    /// 检查是否空闲
+    pub fn is_idle(&self, timeout: chrono::Duration) -> bool {
+        let elapsed = Utc::now() - self.last_seen;
+        elapsed > timeout
     }
 }
 
 /// 设备管理器
+/// 
+/// 管理所有接入的设备实例
 pub struct DeviceManager {
     devices: RwLock<HashMap<String, DeviceInstance>>,
     adapters: RwLock<HashMap<DeviceType, Arc<dyn DeviceAdapter>>>,
@@ -228,16 +220,39 @@ impl DeviceManager {
                     events += 1;
                 }
                 
-                let ingest = IngestData {
+                // 从数据库获取设备信息和绑定
+                let device_repo = DeviceRepository::new(&self.pool);
+                let binding_repo = BindingRepository::new(&self.pool);
+                
+                let (device_uuid, patient_id) = match device_repo.find_by_serial(&device.serial_number).await {
+                    Ok(Some(device)) => {
+                        // 查找当前绑定
+                        let patient = binding_repo.find_active_by_device(&device.id).await.ok().flatten();
+                        (Some(device.id), patient.map(|b| b.patient_id))
+                    }
+                    _ => (None, None),
+                };
+                
+                let datapoint = DataPoint {
                     time: msg.time,
-                    device_id: uuid::Uuid::nil(),
-                    subject_id: None,
+                    device_id: device_uuid,
+                    patient_id,
                     data_type: msg.data_type.clone(),
+                    data_category: crate::core::entity::DataCategory::Metric,
+                    value_numeric: None,
+                    value_text: None,
+                    severity: msg.severity.and_then(|s| s.parse().ok()),
+                    status: None,
                     payload: msg.payload,
                     source: source.to_string(),
                 };
                 
-                match data_service.ingest(ingest).await {
+                match data_service.ingest(
+                    datapoint.device_id,
+                    datapoint.patient_id,
+                    datapoint.data_type,
+                    datapoint.payload,
+                ).await {
                     Ok(_) => persisted += 1,
                     Err(e) => {
                         log::error!("入库失败: {}", e);
@@ -336,30 +351,21 @@ impl AdapterRegistry {
         }
     }
     
-    /// 注册适配器
     pub fn register(&mut self, adapter: Arc<dyn DeviceAdapter>) {
         let device_type = adapter.device_type();
+        log::info!("注册适配器: {:?}", device_type);
         self.adapters.insert(device_type, adapter);
     }
     
-    /// 获取适配器
     pub fn get(&self, device_type: &DeviceType) -> Option<Arc<dyn DeviceAdapter>> {
         self.adapters.get(device_type).cloned()
     }
     
-    /// 检查是否支持该设备类型
-    pub fn is_supported(&self, device_type: &DeviceType) -> bool {
-        self.adapters.contains_key(device_type)
-    }
-    
-    /// 获取所有支持的设备类型
-    pub fn supported_types(&self) -> Vec<DeviceType> {
-        self.adapters.keys().cloned().collect()
-    }
-    
-    /// 获取所有设备元信息
-    pub fn all_metadata(&self) -> Vec<DeviceMetadata> {
-        self.adapters.values().map(|a| a.metadata()).collect()
+    pub fn list(&self) -> Vec<(DeviceType, DeviceMetadata)> {
+        self.adapters
+            .iter()
+            .map(|(k, v)| (k.clone(), v.metadata()))
+            .collect()
     }
 }
 

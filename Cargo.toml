@@ -61,6 +61,9 @@ crc = "3.0"
 # 验证
 validator = { version = "0.18", features = ["derive"] }
 
+# 高精度数值
+rust_decimal = { version = "1.35", features = ["db-postgres", "serde"] }
+
 # 异步 trait
 async-trait = "0.1"
 

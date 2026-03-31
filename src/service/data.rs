@@ -3,9 +3,9 @@ use log::info;
 use sqlx::PgPool;
 use uuid::Uuid;
 
-use crate::core::entity::IngestData;
-use crate::dto::request::{DataQuery, DataReportRequest};
-use crate::dto::response::{DataQueryResponse, DataRecordResponse, DataReportResponse, Pagination};
+use crate::core::entity::{DataPoint, DataQuery as CoreDataQuery};
+use crate::dto::request::{AlertQuery, DataQuery, DataReportRequest};
+use crate::dto::response::{AlertStatsResponse, DataQueryResponse, DataRecordResponse, DataReportResponse, Pagination};
 use crate::errors::AppResult;
 use crate::repository::{BindingRepository, DataRepository, DeviceRepository};
 
@@ -24,29 +24,50 @@ impl<'a> DataService<'a> {
         }
     }
 
-    /// 数据入库
-    pub async fn ingest(&self, data: IngestData) -> AppResult<DataReportResponse> {
-        let result = self.data_repo.insert(&data).await?;
+    /// 数据入库（使用新的 DataPoint）
+    pub async fn ingest(&self,
+        device_id: Option<Uuid>,
+        patient_id: Option<Uuid>,
+        data_type: String,
+        payload: serde_json::Value,
+    ) -> AppResult<DataReportResponse> {
+        let datapoint = DataPoint {
+            time: Utc::now(),
+            device_id,
+            patient_id,
+            data_type: data_type.clone(),
+            data_category: crate::core::entity::DataCategory::Metric,
+            value_numeric: None,
+            value_text: None,
+            severity: None,
+            status: None,
+            payload,
+            source: "mqtt".to_string(),
+        };
+
+        let result = self.data_repo.insert_datapoint(&datapoint).await?;
 
         info!(
-            "数据入库成功: device_id={}, subject_id={:?}, data_type={}",
-            result.device_id, result.subject_id, result.data_type
+            "数据入库成功: device_id={:?}, patient_id={:?}, data_type={}",
+            result.device_id, result.patient_id, result.data_type
         );
 
         Ok(DataReportResponse {
             success: true,
             time: result.time,
             device_id: result.device_id,
+            patient_id: result.patient_id,
         })
     }
 
     /// HTTP 数据上报
-    pub async fn report_http(&self, req: DataReportRequest) -> AppResult<DataReportResponse> {
+    pub async fn report_http(&self, req: DataReportRequest
+    ) -> AppResult<DataReportResponse> {
         // 验证设备存在
         self.device_repo.find_by_id(&req.device_id).await?;
 
         // 获取当前绑定的患者
-        let subject_id = match req.subject_id {
+        let patient_id = match req.patient_id {
             Some(id) => Some(id),
             None => self
                 .binding_repo
@@ -55,22 +76,47 @@ impl<'a> DataService<'a> {
                 .map(|b| b.patient_id),
         };
 
-        let data = IngestData {
+        let datapoint = DataPoint {
             time: req.timestamp.unwrap_or_else(Utc::now),
-            device_id: req.device_id,
-            subject_id,
+            device_id: Some(req.device_id),
+            patient_id,
             data_type: req.data_type,
+            data_category: crate::core::entity::DataCategory::Metric,
+            value_numeric: None,
+            value_text: None,
+            severity: None,
+            status: None,
             payload: req.payload,
             source: "http".to_string(),
         };
 
-        self.ingest(data).await
+        let result = self.data_repo.insert_datapoint(&datapoint).await?;
+
+        Ok(DataReportResponse {
+            success: true,
+            time: result.time,
+            device_id: result.device_id,
+            patient_id: result.patient_id,
+        })
     }
 
     /// 查询数据
     pub async fn query(&self, query: DataQuery) -> AppResult<DataQueryResponse> {
-        let total = self.data_repo.count(&query).await?;
-        let data = self.data_repo.query(&query).await?;
+        let core_query = CoreDataQuery {
+            patient_id: query.patient_id,
+            device_id: query.device_id,
+            data_type: query.data_type,
+            data_category: query.data_category.and_then(|s| s.parse().ok()),
+            severity: query.severity.and_then(|s| s.parse().ok()),
+            status: query.status.and_then(|s| s.parse().ok()),
+            start_time: query.start_time,
+            end_time: query.end_time,
+            page: query.page,
+            page_size: query.page_size,
+        };
+
+        let total = self.data_repo.count(&core_query).await?;
+        let data = self.data_repo.query(&core_query).await?;
 
         let records: Vec<DataRecordResponse> = data.into_iter().map(|d| d.into()).collect();
 
@@ -84,35 +130,86 @@ impl<'a> DataService<'a> {
         })
     }
 
-    /// 按设备查询最新数据
-    pub async fn get_latest(
+    /// 查询活跃告警
+    pub async fn query_alerts(&self, query: AlertQuery
+    ) -> AppResult<DataQueryResponse> {
+        let core_query = CoreDataQuery {
+            patient_id: query.patient_id,
+            device_id: None,
+            data_type: query.data_type,
+            data_category: Some(crate::core::entity::DataCategory::Event),
+            severity: query.severity.and_then(|s| s.parse().ok()),
+            status: query.status.and_then(|s| s.parse().ok()),
+            start_time: query.start_time,
+            end_time: query.end_time,
+            page: query.page,
+            page_size: query.page_size,
+        };
+
+        let total = self.data_repo.count(&core_query).await?;
+        let data = self.data_repo.query(&core_query).await?;
+
+        let records: Vec<DataRecordResponse> = data.into_iter().map(|d| d.into()).collect();
+
+        Ok(DataQueryResponse {
+            data: records,
+            pagination: Pagination {
+                page: query.page,
+                page_size: query.page_size,
+                total,
+            },
+        })
+    }
+
+    /// 获取告警统计
+    pub async fn get_alert_stats(
         &self,
-        device_id: &Uuid,
-        data_type: Option<&str>,
-    ) -> AppResult<Option<DataRecordResponse>> {
-        let data = self.data_repo.find_latest(device_id, data_type).await?;
-        Ok(data.map(|d| d.into()))
+        patient_id: Option<&Uuid>,
+    ) -> AppResult<AlertStatsResponse> {
+        let stats = self.data_repo.get_stats(patient_id, None).await?;
+        
+        Ok(AlertStatsResponse {
+            metric_count: stats.metric_count,
+            event_count: stats.event_count,
+            active_alert_count: stats.active_alert_count,
+            critical_count: stats.critical_count,
+        })
+    }
+
+    /// 确认事件
+    pub async fn acknowledge_event(
+        &self,
+        patient_id: &Uuid,
+        time: &chrono::DateTime<chrono::Utc>,
+        device_id: Option<&Uuid>,
+    ) -> AppResult<DataRecordResponse> {
+        let result = self.data_repo.acknowledge_event(patient_id, time, device_id).await?;
+        Ok(result.into())
+    }
+
+    /// 解决事件
+    pub async fn resolve_event(
+        &self,
+        patient_id: &Uuid,
+        time: &chrono::DateTime<chrono::Utc>,
+        device_id: Option<&Uuid>,
+    ) -> AppResult<DataRecordResponse> {
+        let result = self.data_repo.resolve_event(patient_id, time, device_id).await?;
+        Ok(result.into())
     }
 
     /// 按患者查询最新数据
-    pub async fn get_latest_by_subject(
+    pub async fn get_latest_by_patient(
         &self,
-        subject_id: &Uuid,
+        patient_id: &Uuid,
         data_type: Option<&str>,
         limit: i64,
     ) -> AppResult<Vec<DataRecordResponse>> {
         let data = self
             .data_repo
-            .find_latest_by_subject(subject_id, data_type, limit)
+            .find_latest_by_patient(patient_id, data_type, limit)
             .await?;
         Ok(data.into_iter().map(|d| d.into()).collect())
-    }
-
-    /// 删除数据
-    pub async fn delete(&self, id: &Uuid) -> AppResult<()> {
-        self.data_repo.delete(id).await?;
-        info!("数据删除成功: id={}", id);
-        Ok(())
     }
 }
 
@@ -122,8 +219,13 @@ impl From<crate::core::entity::Datasheet> for DataRecordResponse {
         Self {
             time: data.time,
             device_id: data.device_id,
-            subject_id: data.subject_id,
+            patient_id: data.patient_id,
             data_type: data.data_type,
+            data_category: data.data_category,
+            value_numeric: data.value_numeric,
+            value_text: data.value_text,
+            severity: data.severity,
+            status: data.status,
             payload: data.payload,
             source: data.source,
             ingested_at: data.ingested_at,

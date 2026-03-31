@@ -36,12 +36,12 @@ pub async fn list_device_types(
     registry: &State<Arc<AdapterRegistry>>,
 ) -> Json<Vec<DeviceTypeInfo>> {
     let types: Vec<DeviceTypeInfo> = registry
-        .all_metadata()
+        .list()
         .into_iter()
-        .map(|m| DeviceTypeInfo {
+        .map(|(_, m)| DeviceTypeInfo {
             device_type: m.device_type.to_string(),
             display_name: m.display_name.to_string(),
-            supported_data_types: m.supported_data_types.iter().map(|s| s.to_string()).collect(),
+            supported_data_types: m.supported_data_types.iter().map(|s: &String| s.to_string()).collect(),
             protocol_version: m.protocol_version.to_string(),
         })
         .collect();
@@ -85,12 +85,12 @@ pub async fn get_device_system_status(
     let idle = devices.iter().filter(|s| s.is_idle).count();
     
     let supported_types: Vec<DeviceTypeInfo> = registry
-        .all_metadata()
+        .list()
         .into_iter()
-        .map(|m| DeviceTypeInfo {
+        .map(|(_, m)| DeviceTypeInfo {
             device_type: m.device_type.to_string(),
             display_name: m.display_name.to_string(),
-            supported_data_types: m.supported_data_types.iter().map(|s| s.to_string()).collect(),
+            supported_data_types: m.supported_data_types.iter().map(|s: &String| s.to_string()).collect(),
             protocol_version: m.protocol_version.to_string(),
         })
         .collect();

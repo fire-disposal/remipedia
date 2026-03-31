@@ -3,15 +3,18 @@ use sqlx::PgPool;
 use uuid::Uuid;
 
 use crate::core::entity::NewUser;
+use crate::dto::convert::IntoResponse;
 use crate::dto::request::{CreateUserRequest, UpdateUserRequest, UserQuery};
 use crate::dto::response::{Pagination, UserListResponse, UserResponse};
 use crate::errors::{AppError, AppResult};
 use crate::repository::{RoleRepository, UserRepository};
 use crate::service::AuthService;
+use crate::service::ServiceConverter;
 
 pub struct UserService<'a> {
     user_repo: UserRepository<'a>,
     role_repo: RoleRepository<'a>,
+    converter: ServiceConverter<'a>,
 }
 
 impl<'a> UserService<'a> {
@@ -19,6 +22,7 @@ impl<'a> UserService<'a> {
         Self {
             user_repo: UserRepository::new(pool),
             role_repo: RoleRepository::new(pool),
+            converter: ServiceConverter::new(pool),
         }
     }
 
@@ -58,42 +62,14 @@ impl<'a> UserService<'a> {
             user.id, user.username
         );
 
-        // 转换为响应
-        let role = self.role_repo.find_by_id(&user.role_id).await?;
-        let role_name = role.map(|r| r.name).unwrap_or_else(|| "unknown".to_string());
-        
-        Ok(UserResponse {
-            id: user.id,
-            username: user.username,
-            role_id: user.role_id,
-            role_name,
-            phone: user.phone,
-            email: user.email,
-            avatar_url: user.avatar_url,
-            status: user.status,
-            created_at: user.created_at,
-            last_login_at: user.last_login_at,
-        })
+        // 使用IntoResponse trait进行转换
+        user.into_response(&self.role_repo).await
     }
 
     /// 获取用户
     pub async fn get_by_id(&self, id: &Uuid) -> AppResult<UserResponse> {
         let user = self.user_repo.find_by_id(id).await?;
-        let role = self.role_repo.find_by_id(&user.role_id).await?;
-        let role_name = role.map(|r| r.name).unwrap_or_else(|| "unknown".to_string());
-        
-        Ok(UserResponse {
-            id: user.id,
-            username: user.username,
-            role_id: user.role_id,
-            role_name,
-            phone: user.phone,
-            email: user.email,
-            avatar_url: user.avatar_url,
-            status: user.status,
-            created_at: user.created_at,
-            last_login_at: user.last_login_at,
-        })
+        user.into_response(&self.role_repo).await
     }
 
     /// 更新用户
@@ -120,21 +96,7 @@ impl<'a> UserService<'a> {
 
         info!("用户更新成功: user_id={}", user.id);
 
-        let role = self.role_repo.find_by_id(&user.role_id).await?;
-        let role_name = role.map(|r| r.name).unwrap_or_else(|| "unknown".to_string());
-        
-        Ok(UserResponse {
-            id: user.id,
-            username: user.username,
-            role_id: user.role_id,
-            role_name,
-            phone: user.phone,
-            email: user.email,
-            avatar_url: user.avatar_url,
-            status: user.status,
-            created_at: user.created_at,
-            last_login_at: user.last_login_at,
-        })
+        user.into_response(&self.role_repo).await
     }
 
     /// 查询用户列表
@@ -163,25 +125,33 @@ impl<'a> UserService<'a> {
             .count(role_id.as_ref(), query.status.as_deref())
             .await?;
 
+        // 收集所有唯一的role_id进行批量查询（优化N+1问题）
+        let role_ids: Vec<_> = users.iter().map(|u| u.role_id).collect();
+        let role_names = self.converter.get_role_names(&role_ids).await?;
+
         // 转换为响应
-        let mut responses = Vec::new();
-        for user in users {
-            let role = self.role_repo.find_by_id(&user.role_id).await?;
-            let role_name = role.map(|r| r.name).unwrap_or_else(|| "unknown".to_string());
-            
-            responses.push(UserResponse {
-                id: user.id,
-                username: user.username,
-                role_id: user.role_id,
-                role_name,
-                phone: user.phone,
-                email: user.email,
-                avatar_url: user.avatar_url,
-                status: user.status,
-                created_at: user.created_at,
-                last_login_at: user.last_login_at,
-            });
-        }
+        let responses: Vec<UserResponse> = users
+            .into_iter()
+            .map(|user| {
+                let role_name = role_names
+                    .get(&user.role_id)
+                    .cloned()
+                    .unwrap_or_else(|| "unknown".to_string());
+                
+                UserResponse {
+                    id: user.id,
+                    username: user.username,
+                    role_id: user.role_id,
+                    role_name,
+                    phone: user.phone,
+                    email: user.email,
+                    avatar_url: user.avatar_url,
+                    status: user.status,
+                    created_at: user.created_at,
+                    last_login_at: user.last_login_at,
+                }
+            })
+            .collect();
 
         Ok(UserListResponse {
             users: responses,

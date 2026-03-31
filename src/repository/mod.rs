@@ -1,4 +1,5 @@
 mod audit_log;
+mod base;
 mod binding;
 mod data;
 mod device;
@@ -9,6 +10,7 @@ mod role;
 mod user;
 
 pub use audit_log::*;
+pub use base::*;
 pub use binding::*;
 pub use data::*;
 pub use device::*;

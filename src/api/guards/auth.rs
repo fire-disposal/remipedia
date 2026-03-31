@@ -206,13 +206,13 @@ impl<'r> FromRequest<'r> for RequirePermission {
     type Error = AppError;
 
     async fn from_request(request: &'r Request<'_>) -> Outcome<Self, Self::Error> {
-        let user = match AuthenticatedUser::from_request(request).await {
+        let _user = match AuthenticatedUser::from_request(request).await {
             Outcome::Success(user) => user,
             Outcome::Error(e) => return Outcome::Error(e),
             Outcome::Forward(f) => return Outcome::Forward(f),
         };
 
-        let pool = match request.rocket().state::<PgPool>() {
+        let _pool = match request.rocket().state::<PgPool>() {
             Some(pool) => pool,
             None => {
                 return Outcome::Error((

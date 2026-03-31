@@ -5,7 +5,7 @@ use argon2::{
 use chrono::{Duration, Utc};
 use jsonwebtoken::{decode, encode, Algorithm, DecodingKey, EncodingKey, Header, Validation};
 use log::info;
-use sha2::{Digest, Sha256};
+use sha2::Digest;
 use sqlx::PgPool;
 use uuid::Uuid;
 

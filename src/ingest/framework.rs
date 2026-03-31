@@ -178,7 +178,7 @@ impl DeviceManager {
         source: &str,
     ) -> AppResult<ProcessResult> {
         let mut devices = self.devices.write().await;
-        
+
         // 获取或创建设备实例
         let device = match devices.get_mut(serial_number) {
             Some(d) => d,
@@ -190,7 +190,7 @@ impl DeviceManager {
                         .cloned()
                         .ok_or_else(|| AppError::ValidationError(format!("未找到设备类型 {} 的适配器", device_type)))?
                 };
-                
+
                 // 创建新设备实例
                 let new_device = DeviceInstance::new(
                     serial_number.to_string(),
@@ -199,9 +199,11 @@ impl DeviceManager {
                     adapter,
                     None, // 状态可以后续添加
                 );
-                
+
+                // 安全地插入并获取可变引用
                 devices.insert(serial_number.to_string(), new_device);
-                devices.get_mut(serial_number).unwrap()
+                devices.get_mut(serial_number)
+                    .ok_or_else(|| AppError::InternalError)?
             }
         };
         
@@ -329,14 +331,6 @@ pub struct DeviceInfo {
     pub device_type: String,
     pub last_seen: DateTime<Utc>,
     pub is_idle: bool,
-}
-
-impl Default for DeviceManager {
-    fn default() -> Self {
-        // 需要提供一个默认的 pool，但这里无法提供，所以 panic
-        // 实际使用中应该使用 new(pool) 创建
-        panic!("DeviceManager::default() 不可用，请使用 DeviceManager::new(pool)");
-    }
 }
 
 /// 适配器注册表

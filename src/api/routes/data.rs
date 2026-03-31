@@ -8,7 +8,7 @@ use uuid::Uuid;
 use crate::api::guards::AuthenticatedUser;
 use crate::dto::request::DataReportRequest;
 use crate::dto::response::{DataQueryResponse, DataReportResponse};
-use crate::errors::{AppError, AppResult};
+use crate::errors::AppResult;
 use crate::service::DataService;
 
 /// 数据上报

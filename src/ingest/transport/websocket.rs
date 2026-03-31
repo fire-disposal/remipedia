@@ -24,6 +24,15 @@ impl WebSocketTransport {
             default_device_type: "smart_mattress",
         }
     }
+
+    /// 解析设备类型，如果是无效值则记录错误并返回默认值
+    fn parse_device_type_or_default(s: &str) -> DeviceType {
+        DeviceType::from_str(s)
+            .unwrap_or_else(|| {
+                log::warn!("无效的设备类型 '{}', 使用默认类型 'smart_mattress'", s);
+                DeviceType::SmartMattress
+            })
+    }
 }
 
 #[async_trait]
@@ -71,7 +80,7 @@ impl Transport for WebSocketTransport {
                             if let Ok(packet) = serde_json::to_vec(&json) {
                                 let _ = dm.process(
                                     &serial,
-                                    DeviceType::from_str("smart_mattress").unwrap(),
+                                    Self::parse_device_type_or_default("smart_mattress"),
                                     packet,
                                     "websocket"
                                 ).await;
@@ -112,7 +121,7 @@ async fn handle_connection(
                         if let Ok(packet) = serde_json::to_vec(&json) {
                             let _ = device_manager.process(
                                 &serial,
-                                DeviceType::from_str(&default_type).unwrap(),
+                                WebSocketTransport::parse_device_type_or_default(&default_type),
                                 packet,
                                 "websocket"
                             ).await;

@@ -41,6 +41,19 @@ use utoipa_swagger_ui::SwaggerUi;
         // Data
         crate::api::routes::data::report_data,
         crate::api::routes::data::query_data,
+        // Admin - Roles & Permissions
+        crate::api::routes::admin::list_roles,
+        crate::api::routes::admin::get_role,
+        crate::api::routes::admin::create_role,
+        crate::api::routes::admin::update_role,
+        crate::api::routes::admin::delete_role,
+        crate::api::routes::admin::get_role_permissions,
+        crate::api::routes::admin::assign_permission,
+        crate::api::routes::admin::revoke_permission,
+        crate::api::routes::admin::list_permissions,
+        // Admin - Audit Logs
+        crate::api::routes::admin::list_audit_logs,
+        crate::api::routes::admin::get_audit_log,
     ),
     components(
         schemas(
@@ -62,6 +75,11 @@ use utoipa_swagger_ui::SwaggerUi;
             crate::dto::request::CreateBindingRequest,
             crate::dto::request::DataReportRequest,
             crate::dto::request::DataQuery,
+            // Admin - Role & Permission Request DTOs
+            crate::dto::response::CreateRoleRequest,
+            crate::dto::response::UpdateRoleRequest,
+            crate::dto::response::AssignPermissionRequest,
+            crate::dto::response::AuditLogQueryParams,
             // Response DTOs
             crate::dto::response::LoginResponse,
             crate::dto::response::RefreshTokenResponse,
@@ -81,6 +99,14 @@ use utoipa_swagger_ui::SwaggerUi;
             crate::dto::response::DataRecordResponse,
             crate::dto::response::DataQueryResponse,
             crate::dto::response::Pagination,
+            // Admin - Role & Permission Response DTOs
+            crate::dto::response::RoleResponse,
+            crate::dto::response::RoleListResponse,
+            crate::dto::response::PermissionResponse,
+            crate::dto::response::PermissionListResponse,
+            crate::dto::response::RolePermissionResponse,
+            crate::dto::response::AuditLogResponse,
+            crate::dto::response::AuditLogListResponse,
         ),
     ),
     tags(
@@ -90,6 +116,7 @@ use utoipa_swagger_ui::SwaggerUi;
         (name = "devices", description = "设备管理接口"),
         (name = "bindings", description = "绑定关系接口"),
         (name = "data", description = "数据接口"),
+        (name = "admin", description = "系统管理接口（角色、权限、审计日志）"),
     ),
 )]
 pub struct ApiDoc;

@@ -39,7 +39,7 @@ impl MqttTransportV2 {
 
         // 订阅主题
         client.subscribe("devices/+/+", rumqttc::QoS::AtLeastOnce).await
-            .map_err(|e| AppError::InternalError)?;
+            .map_err(|_e| AppError::InternalError)?;
 
         log::info!("MQTT Transport启动: {}:{}", self.broker, self.port);
 

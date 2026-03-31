@@ -2,7 +2,7 @@
 
 use crate::errors::{AppError, AppResult};
 use crate::ingest::{DataPacket, IngestionPipeline};
-use futures_util::{SinkExt, StreamExt};
+use futures_util::StreamExt;
 use std::net::SocketAddr;
 use std::sync::Arc;
 use tokio::net::TcpListener;
@@ -24,13 +24,13 @@ impl WebSocketTransportV2 {
         pipeline: Arc<IngestionPipeline>,
     ) -> AppResult<()> {
         let listener = TcpListener::bind(self.bind).await
-            .map_err(|e| AppError::InternalError)?;
+            .map_err(|_e| AppError::InternalError)?;
 
         log::info!("WebSocket Transport启动: {}", self.bind);
 
         loop {
             let (stream, addr) = listener.accept().await
-                .map_err(|e| AppError::InternalError)?;
+                .map_err(|_e| AppError::InternalError)?;
 
             let pipeline = pipeline.clone();
 
@@ -48,14 +48,14 @@ impl WebSocketTransportV2 {
         pipeline: Arc<IngestionPipeline>,
     ) -> AppResult<()> {
         let ws_stream = accept_async(stream).await
-            .map_err(|e| AppError::InternalError)?;
+            .map_err(|_e| AppError::InternalError)?;
 
         log::info!("WebSocket连接建立: {}", addr);
 
-        let (mut write, mut read) = ws_stream.split();
+        let (_write, mut read) = ws_stream.split();
 
         while let Some(msg) = read.next().await {
-            let msg = msg.map_err(|e| AppError::InternalError)?;
+            let msg = msg.map_err(|_e| AppError::InternalError)?;
 
             if msg.is_text() {
                 let payload = msg.into_data();

@@ -2,7 +2,6 @@
 
 use crate::errors::{AppError, AppResult};
 use crate::ingest::{DataPacket, IngestionPipeline};
-use crate::ingest::protocol::ProtocolDecoder;
 use std::net::SocketAddr;
 use std::sync::Arc;
 use tokio::io::AsyncReadExt;

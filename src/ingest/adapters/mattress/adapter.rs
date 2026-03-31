@@ -10,7 +10,6 @@ use crate::ingest::protocol::ProtocolDecoder;
 use crate::ingest::state::DeviceState;
 use crate::ingest::ParsedData;
 use async_trait::async_trait;
-use chrono::Utc;
 
 /// 床垫适配器V2
 pub struct MattressAdapterV2 {

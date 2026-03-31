@@ -119,7 +119,7 @@ pub trait DeviceAdapter: Send + Sync {
     async fn process_with_state(
         &self,
         data: ParsedData,
-        state: &mut dyn DeviceState,
+        _state: &mut dyn DeviceState,
     ) -> AppResult<Vec<DataPoint>> {
         // 默认行为：忽略state，调用无状态版本
         self.process(data).await

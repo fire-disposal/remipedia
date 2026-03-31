@@ -9,12 +9,12 @@ use crate::ingest::state::{DeviceEvent, DeviceState, EventSeverity};
 use crate::ingest::ParsedData;
 use async_trait::async_trait;
 use chrono::Utc;
-use serde_json::json;
 
 /// 有状态适配器
 ///
 /// S: 状态类型
 /// E: 事件引擎
+#[allow(dead_code)]
 pub struct StatefulAdapter<S, E>
 where
     S: DeviceState + Clone + 'static,

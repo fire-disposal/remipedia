@@ -160,7 +160,7 @@ impl ProtocolDecoder for MessagePackDecoder {
 
         // CRC校验（第4字节是CRC）
         let _expected_crc = buffer[3];
-        let data_bytes = &buffer[4..4 + data_len];
+        let _data_bytes = &buffer[4..4 + data_len];
 
         // TODO: CRC校验实现
 

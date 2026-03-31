@@ -8,7 +8,7 @@ use crate::ingest::{
     adapter::{AdapterRegistry, DeviceType},
     resolver::DeviceResolver,
     state::StateManager,
-    DataPacket, PacketMetadata, ParsedData,
+    DataPacket,
 };
 use crate::repository::DataRepository;
 use sqlx::PgPool;

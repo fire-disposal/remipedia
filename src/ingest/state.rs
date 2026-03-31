@@ -63,6 +63,7 @@ impl EventSeverity {
 }
 
 /// 状态管理器
+#[allow(dead_code)]
 pub struct StateManager {
     states: Arc<RwLock<HashMap<String, Box<dyn DeviceState>>>>,
     max_states: usize,

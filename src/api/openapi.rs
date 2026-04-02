@@ -56,6 +56,7 @@ use utoipa_swagger_ui::SwaggerUi;
         crate::api::routes::admin::get_audit_log,
         // Ingest
         crate::api::routes::ingest::mqtt_protocol_doc,
+        crate::api::routes::ingest::query_raw_data,
     ),
     components(
         schemas(
@@ -77,6 +78,7 @@ use utoipa_swagger_ui::SwaggerUi;
             crate::dto::request::CreateBindingRequest,
             crate::dto::request::DataReportRequest,
             crate::dto::request::DataQuery,
+            crate::dto::request::RawDataQuery,
             // Admin - Role & Permission Request DTOs
             crate::dto::response::CreateRoleRequest,
             crate::dto::response::UpdateRoleRequest,
@@ -100,6 +102,8 @@ use utoipa_swagger_ui::SwaggerUi;
             crate::dto::response::DataReportResponse,
             crate::dto::response::DataRecordResponse,
             crate::dto::response::DataQueryResponse,
+            crate::dto::response::RawDataRecordResponse,
+            crate::dto::response::RawDataQueryResponse,
             crate::dto::response::Pagination,
             // Admin - Role & Permission Response DTOs
             crate::dto::response::RoleResponse,

@@ -138,3 +138,39 @@ impl Default for AlertQuery {
         }
     }
 }
+
+/// Ingest 原始数据查询参数
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct RawDataQuery {
+    /// 数据来源筛选（mqtt/http/tcp/ws）
+    pub source: Option<String>,
+    /// 设备序列号筛选
+    pub serial_number: Option<String>,
+    /// 设备类型筛选
+    pub device_type: Option<String>,
+    /// 状态筛选（stored/ingested/ignored/format_error/processing_error）
+    pub status: Option<String>,
+    /// 开始时间（received_at）
+    pub start_time: Option<DateTime<Utc>>,
+    /// 结束时间（received_at）
+    pub end_time: Option<DateTime<Utc>>,
+    /// 页码
+    pub page: u32,
+    /// 每页数量
+    pub page_size: u32,
+}
+
+impl Default for RawDataQuery {
+    fn default() -> Self {
+        Self {
+            source: None,
+            serial_number: None,
+            device_type: None,
+            status: None,
+            start_time: None,
+            end_time: None,
+            page: 1,
+            page_size: 20,
+        }
+    }
+}

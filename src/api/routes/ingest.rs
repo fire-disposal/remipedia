@@ -1,8 +1,14 @@
 use rocket::serde::json::Json;
 use rocket::{get, State};
+use sqlx::PgPool;
 use utoipa::ToSchema;
 
+use crate::api::guards::AuthenticatedUser;
 use crate::config::MqttConfig;
+use crate::dto::request::RawDataQuery;
+use crate::dto::response::RawDataQueryResponse;
+use crate::errors::AppResult;
+use crate::service::IngestRawService;
 
 #[derive(Debug, Clone, rocket::serde::Serialize, ToSchema)]
 pub struct MqttProtocolDoc {
@@ -83,6 +89,66 @@ pub async fn mqtt_protocol_doc(mqtt_config: &State<MqttConfig>) -> Json<MqttProt
     })
 }
 
+/// 查询 ingest 原始归档数据
+#[utoipa::path(
+    get,
+    path = "/ingest/raw",
+    tag = "ingest",
+    security(
+        ("bearer_auth" = [])
+    ),
+    params(
+        ("source" = Option<String>, Query, description = "来源筛选"),
+        ("serial_number" = Option<String>, Query, description = "序列号筛选"),
+        ("device_type" = Option<String>, Query, description = "设备类型筛选"),
+        ("status" = Option<String>, Query, description = "状态筛选"),
+        ("start_time" = Option<String>, Query, description = "开始时间 (RFC3339, received_at)"),
+        ("end_time" = Option<String>, Query, description = "结束时间 (RFC3339, received_at)"),
+        ("page" = Option<u32>, Query, description = "页码"),
+        ("page_size" = Option<u32>, Query, description = "每页数量"),
+    ),
+    responses(
+        (status = 200, description = "查询成功", body = RawDataQueryResponse),
+    )
+)]
+#[get("/ingest/raw?<source>&<serial_number>&<device_type>&<status>&<start_time>&<end_time>&<page>&<page_size>")]
+pub async fn query_raw_data(
+    pool: &State<PgPool>,
+    _user: AuthenticatedUser,
+    source: Option<String>,
+    serial_number: Option<String>,
+    device_type: Option<String>,
+    status: Option<String>,
+    start_time: Option<String>,
+    end_time: Option<String>,
+    page: Option<u32>,
+    page_size: Option<u32>,
+) -> AppResult<Json<RawDataQueryResponse>> {
+    let service = IngestRawService::new(pool);
+
+    let query = RawDataQuery {
+        source,
+        serial_number,
+        device_type,
+        status,
+        start_time: start_time.as_ref().and_then(|s| {
+            chrono::DateTime::parse_from_rfc3339(s)
+                .ok()
+                .map(|dt| dt.with_timezone(&chrono::Utc))
+        }),
+        end_time: end_time.as_ref().and_then(|s| {
+            chrono::DateTime::parse_from_rfc3339(s)
+                .ok()
+                .map(|dt| dt.with_timezone(&chrono::Utc))
+        }),
+        page: page.unwrap_or(1),
+        page_size: page_size.unwrap_or(20),
+    };
+
+    let response = service.query(query).await?;
+    Ok(Json(response))
+}
+
 pub fn routes() -> Vec<rocket::Route> {
-    rocket::routes![mqtt_protocol_doc]
+    rocket::routes![mqtt_protocol_doc, query_raw_data]
 }

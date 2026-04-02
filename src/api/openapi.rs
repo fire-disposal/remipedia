@@ -54,6 +54,8 @@ use utoipa_swagger_ui::SwaggerUi;
         // Admin - Audit Logs
         crate::api::routes::admin::list_audit_logs,
         crate::api::routes::admin::get_audit_log,
+        // Ingest
+        crate::api::routes::ingest::mqtt_protocol_doc,
     ),
     components(
         schemas(
@@ -107,6 +109,8 @@ use utoipa_swagger_ui::SwaggerUi;
             crate::dto::response::RolePermissionResponse,
             crate::dto::response::AuditLogResponse,
             crate::dto::response::AuditLogListResponse,
+            crate::api::routes::ingest::MqttProtocolDoc,
+            crate::api::routes::ingest::BrokerRecommendation,
         ),
     ),
     tags(
@@ -117,6 +121,7 @@ use utoipa_swagger_ui::SwaggerUi;
         (name = "bindings", description = "绑定关系接口"),
         (name = "data", description = "数据接口"),
         (name = "admin", description = "系统管理接口（角色、权限、审计日志）"),
+        (name = "ingest", description = "设备接入与协议文档"),
     ),
 )]
 pub struct ApiDoc;

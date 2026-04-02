@@ -15,8 +15,8 @@ use remipedia::api::routes;
 use remipedia::api::swagger_ui;
 use remipedia::config::Settings;
 use remipedia::ingest::{
-    IngestionPipeline, PipelineConfig, AdapterRegistry,
-    transport::{TcpTransportV2, MqttTransportV2, WebSocketTransportV2},
+    transport::{MqttTransportV2, TcpTransportV2, WebSocketTransportV2},
+    AdapterRegistry, IngestionPipeline, PipelineConfig,
 };
 use remipedia::repository::UserRepository;
 
@@ -44,13 +44,13 @@ impl Fairing for Cors {
             "Access-Control-Allow-Methods",
             "GET, POST, PUT, DELETE, PATCH, OPTIONS, HEAD",
         ));
-        
+
         if let Some(request_headers) = request.headers().get_one("Access-Control-Request-Headers") {
             response.set_header(Header::new("Access-Control-Allow-Headers", request_headers));
         } else {
             response.set_header(Header::new("Access-Control-Allow-Headers", "*"));
         }
-        
+
         response.set_header(Header::new("Access-Control-Max-Age", "86400"));
         response.set_header(Header::new("Access-Control-Expose-Headers", "*"));
     }
@@ -113,24 +113,8 @@ async fn build_rocket(
     settings: &Settings,
     pool: PgPool,
     pipeline: Arc<IngestionPipeline>,
+    registry: Arc<AdapterRegistry>,
 ) -> Rocket<Build> {
-    // 创建适配器注册表
-    let mut registry = AdapterRegistry::new();
-    
-    // 注册床垫适配器
-    registry.register(Box::new(
-        remipedia::ingest::adapters::mattress::MattressAdapterV2::new()
-    ));
-    
-    // 注册简单转发适配器（示例）
-    registry.register(Box::new(
-        remipedia::ingest::adapters::ForwardAdapter::from_json(
-            remipedia::ingest::adapter::DeviceType::HeartRateMonitor
-        )
-    ));
-    
-    let registry = Arc::new(registry);
-    
     rocket::build()
         .manage(pool)
         .manage(settings.jwt.clone())
@@ -148,8 +132,7 @@ async fn main() -> anyhow::Result<()> {
     init_logging();
     info!("🚀 Remipedia IoT Health Platform 启动中...");
 
-    let settings = Settings::new()
-        .map_err(|e| anyhow::anyhow!("配置加载失败: {}", e))?;
+    let settings = Settings::new().map_err(|e| anyhow::anyhow!("配置加载失败: {}", e))?;
     info!("📋 配置加载成功");
 
     let pool = PgPoolOptions::new()
@@ -171,10 +154,39 @@ async fn main() -> anyhow::Result<()> {
         max_states: 10000,
         state_idle_timeout_secs: 1800,
     };
-    
-    let adapter_registry = Arc::new(AdapterRegistry::new());
-    let pipeline = Arc::new(IngestionPipeline::new(&pool, adapter_registry, config));
-    
+
+    let mut adapter_registry = AdapterRegistry::new();
+    adapter_registry.register(Box::new(
+        remipedia::ingest::adapters::mattress::MattressAdapterV2::new(),
+    ));
+    adapter_registry.register(Box::new(
+        remipedia::ingest::adapters::ForwardAdapter::from_json(
+            remipedia::ingest::adapter::DeviceType::HeartRateMonitor,
+        ),
+    ));
+    adapter_registry.register(Box::new(
+        remipedia::ingest::adapters::ForwardAdapter::from_json(
+            remipedia::ingest::adapter::DeviceType::BloodPressureMonitor,
+        ),
+    ));
+    adapter_registry.register(Box::new(
+        remipedia::ingest::adapters::ForwardAdapter::from_json(
+            remipedia::ingest::adapter::DeviceType::GlucoseMeter,
+        ),
+    ));
+    adapter_registry.register(Box::new(
+        remipedia::ingest::adapters::ForwardAdapter::from_json(
+            remipedia::ingest::adapter::DeviceType::FallDetector,
+        ),
+    ));
+
+    let adapter_registry = Arc::new(adapter_registry);
+    let pipeline = Arc::new(IngestionPipeline::new(
+        &pool,
+        adapter_registry.clone(),
+        config,
+    ));
+
     info!("📡 数据接入管道初始化完成（队列大小: 50）");
 
     // 启动 Transport 层
@@ -182,11 +194,12 @@ async fn main() -> anyhow::Result<()> {
         // TCP Transport
         if settings.tcp.enabled {
             let pipeline_clone = pipeline.clone();
-            let tcp_bind: std::net::SocketAddr = format!("0.0.0.0:{}", settings.tcp.port)
-                .parse()
-                .map_err(|_| anyhow::anyhow!("无效的TCP绑定地址"))?;
+            let tcp_bind: std::net::SocketAddr =
+                format!("0.0.0.0:{}", settings.tcp.port)
+                    .parse()
+                    .map_err(|_| anyhow::anyhow!("无效的TCP绑定地址"))?;
             let tcp_transport = TcpTransportV2::new(tcp_bind);
-            
+
             tokio::spawn(async move {
                 if let Err(e) = tcp_transport.start(pipeline_clone).await {
                     log::error!("TCP Transport 错误: {}", e);
@@ -201,12 +214,13 @@ async fn main() -> anyhow::Result<()> {
             let pipeline_clone = pipeline.clone();
             let broker = mqtt_cfg.broker.clone();
             let port = mqtt_cfg.port;
-            
+
             tokio::spawn(async move {
                 let mqtt_transport = MqttTransportV2::new(
                     mqtt_cfg.broker,
                     mqtt_cfg.port,
                     mqtt_cfg.client_id,
+                    mqtt_cfg.topic_prefix,
                 );
                 if let Err(e) = mqtt_transport.start(pipeline_clone).await {
                     log::error!("MQTT Transport 错误: {}", e);
@@ -221,7 +235,7 @@ async fn main() -> anyhow::Result<()> {
                 .parse()
                 .map_err(|_| anyhow::anyhow!("无效的WebSocket绑定地址"))?;
             let pipeline_clone = pipeline.clone();
-            
+
             tokio::spawn(async move {
                 let ws_transport = WebSocketTransportV2::new(ws_bind);
                 if let Err(e) = ws_transport.start(pipeline_clone).await {
@@ -233,8 +247,11 @@ async fn main() -> anyhow::Result<()> {
     }
 
     // 启动 HTTP 服务器
-    let rocket = build_rocket(&settings, pool, pipeline).await;
-    info!("🌐 HTTP 服务器启动于 {}:{}", settings.server.host, settings.server.port);
+    let rocket = build_rocket(&settings, pool, pipeline, adapter_registry).await;
+    info!(
+        "🌐 HTTP 服务器启动于 {}:{}",
+        settings.server.host, settings.server.port
+    );
 
     rocket
         .launch()

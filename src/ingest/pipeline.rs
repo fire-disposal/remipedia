@@ -3,6 +3,7 @@
 //! 核心组件：有界队列 + 顺序处理
 
 use crate::core::entity::DataPoint;
+use crate::core::entity::RawIngestStatus;
 use crate::errors::{AppError, AppResult};
 use crate::ingest::{
     adapter::{AdapterRegistry, DeviceType},
@@ -10,7 +11,7 @@ use crate::ingest::{
     state::StateManager,
     DataPacket,
 };
-use crate::repository::DataRepository;
+use crate::repository::{DataRepository, RawDataRepository};
 use sqlx::PgPool;
 use std::sync::Arc;
 use tokio::sync::mpsc;
@@ -66,18 +67,49 @@ impl IngestionPipeline {
             let state_manager = Arc::new(StateManager::new(max_states, idle_timeout));
             let resolver = DeviceResolver::new(&pool, config.auto_register);
             let data_repo = DataRepository::new(&pool);
+            let raw_repo = RawDataRepository::new(&pool);
 
             let mut batch_buffer: Vec<DataPoint> = Vec::with_capacity(config.batch_size);
 
             while let Some(packet) = rx.recv().await {
-                match Self::process_packet(
-                    packet,
-                    &adapter_registry,
-                    &state_manager,
-                    &resolver,
-                ).await {
+                let raw_id = match raw_repo.archive_received(&packet).await {
+                    Ok(id) => Some(id),
+                    Err(e) => {
+                        log::error!("原始数据归档失败: {}", e);
+                        None
+                    }
+                };
+
+                match Self::process_packet(packet, &adapter_registry, &state_manager, &resolver)
+                    .await
+                {
                     Ok(points) => {
+                        if points.is_empty() {
+                            if let Some(id) = raw_id {
+                                if let Err(e) = raw_repo
+                                    .mark_status(
+                                        id,
+                                        RawIngestStatus::Ignored,
+                                        Some("解析成功但未产出可入库数据"),
+                                    )
+                                    .await
+                                {
+                                    log::error!("更新原始数据状态失败: {}", e);
+                                }
+                            }
+                            continue;
+                        }
+
                         batch_buffer.extend(points);
+
+                        if let Some(id) = raw_id {
+                            if let Err(e) = raw_repo
+                                .mark_status(id, RawIngestStatus::Ingested, None)
+                                .await
+                            {
+                                log::error!("更新原始数据状态失败: {}", e);
+                            }
+                        }
 
                         // 批量存储
                         if batch_buffer.len() >= config.batch_size {
@@ -88,6 +120,18 @@ impl IngestionPipeline {
                         }
                     }
                     Err(e) => {
+                        if let Some(id) = raw_id {
+                            let status = if matches!(e, AppError::ValidationError(_)) {
+                                RawIngestStatus::FormatError
+                            } else {
+                                RawIngestStatus::ProcessingError
+                            };
+                            if let Err(mark_err) =
+                                raw_repo.mark_status(id, status, Some(&e.to_string())).await
+                            {
+                                log::error!("更新原始数据状态失败: {}", mark_err);
+                            }
+                        }
                         log::error!("处理数据包失败: {}", e);
                     }
                 }
@@ -107,17 +151,18 @@ impl IngestionPipeline {
     /// 提交数据包到管道
     ///
     /// 如果队列满了，返回错误（不会阻塞）
-    pub fn submit(
-        &self,
-        packet: DataPacket,
-    ) -> AppResult<()> {
+    pub fn submit(&self, packet: DataPacket) -> AppResult<()> {
         match self.tx.try_send(packet) {
             Ok(_) => {
                 log::debug!("数据包已提交到管道");
                 Ok(())
             }
             Err(mpsc::error::TrySendError::Full(_)) => {
-                log::warn!("管道队列已满({}/{}), 丢弃数据包", self.config.queue_size, self.config.queue_size);
+                log::warn!(
+                    "管道队列已满({}/{}), 丢弃数据包",
+                    self.config.queue_size,
+                    self.config.queue_size
+                );
                 Err(AppError::ValidationError("管道队列已满".into()))
             }
             Err(e) => {
@@ -146,12 +191,7 @@ impl IngestionPipeline {
         // 2. 获取适配器
         let adapter = adapters
             .get(&device_type)
-            .ok_or_else(|| {
-                AppError::ValidationError(format!(
-                    "未找到适配器: {:?}",
-                    device_type
-                ))
-            })?;
+            .ok_or_else(|| AppError::ValidationError(format!("未找到适配器: {:?}", device_type)))?;
 
         // 3. 协议解码（如需要）
         let raw = if let Some(decoder) = adapter.protocol_decoder() {
@@ -177,13 +217,9 @@ impl IngestionPipeline {
                 .load(&device_id)
                 .await
                 .or_else(|| adapter.create_state())
-                .ok_or_else(|| {
-                    AppError::InternalError
-                })?;
+                .ok_or_else(|| AppError::InternalError)?;
 
-            let points = adapter
-                .process_with_state(parsed, state.as_mut())
-                .await?;
+            let points = adapter.process_with_state(parsed, state.as_mut()).await?;
 
             state_manager.save(&device_id, state).await;
 
@@ -194,9 +230,7 @@ impl IngestionPipeline {
         };
 
         // 6. 填充 device_id 和 patient_id
-        let (device_uuid, patient_uuid) = resolver
-            .resolve(&serial_number, device_type)
-            .await?;
+        let (device_uuid, patient_uuid) = resolver.resolve(&serial_number, device_type).await?;
 
         let populated_points: Vec<DataPoint> = datapoints
             .into_iter()
@@ -217,8 +251,7 @@ impl IngestionPipeline {
     ) -> AppResult<(String, DeviceType, String)> {
         // 优先使用metadata中已解析的信息
         if let (Some(serial), Some(device_type_str)) =
-            (&packet.metadata.serial_number,
-             &packet.metadata.device_type)
+            (&packet.metadata.serial_number, &packet.metadata.device_type)
         {
             if let Some(device_type) = DeviceType::from_str(device_type_str) {
                 return Ok((serial.clone(), device_type, serial.clone()));
@@ -240,9 +273,7 @@ impl IngestionPipeline {
         }
 
         // 无法解析
-        Err(AppError::ValidationError(
-            "无法从数据包解析设备信息".into(),
-        ))
+        Err(AppError::ValidationError("无法从数据包解析设备信息".into()))
     }
 }
 

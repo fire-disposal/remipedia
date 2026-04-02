@@ -94,3 +94,41 @@ pub struct BindingListResponse {
     /// 分页信息
     pub pagination: Pagination,
 }
+
+/// Ingest 原始数据记录
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct RawDataRecordResponse {
+    /// 归档记录ID
+    pub id: Uuid,
+    /// 数据来源
+    pub source: String,
+    /// 设备序列号
+    pub serial_number: Option<String>,
+    /// 设备类型
+    pub device_type: Option<String>,
+    /// 状态
+    pub status: String,
+    /// 状态说明
+    pub status_message: Option<String>,
+    /// 原始载荷大小（字节）
+    pub payload_size: usize,
+    /// 原始文本预览（最多 500 字符）
+    pub raw_payload_preview: Option<String>,
+    /// 接收时间
+    pub received_at: DateTime<Utc>,
+    /// 处理完成时间
+    pub processed_at: Option<DateTime<Utc>>,
+    /// 创建时间
+    pub created_at: DateTime<Utc>,
+    /// 更新时间
+    pub updated_at: DateTime<Utc>,
+}
+
+/// Ingest 原始数据查询响应
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct RawDataQueryResponse {
+    /// 数据列表
+    pub data: Vec<RawDataRecordResponse>,
+    /// 分页信息
+    pub pagination: Pagination,
+}

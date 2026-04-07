@@ -2,7 +2,7 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-/// JWT Claims 结构
+/// JWT Claims 结构（Module-Based）
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Claims {
     /// 令牌签发者
@@ -19,11 +19,12 @@ pub struct Claims {
     pub jti: String,
     /// 用户 ID
     pub sub: String,
-    /// 角色 ID（替换原来的 role 字符串）
+    /// 角色 ID
     pub role_id: String,
-    /// 可访问的患者列表（资源级权限）
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub subjects: Option<Vec<String>>,
+    /// 是否为系统角色（拥有所有模块权限）
+    pub is_system_role: bool,
+    /// 可访问模块列表（空列表表示通配权限，由 is_system_role 控制）
+    pub modules: Vec<String>,
     /// 令牌类型：access 或 refresh
     pub token_type: String,
 }
@@ -33,12 +34,12 @@ impl Claims {
     pub fn new_access(
         user_id: &Uuid,
         role_id: &Uuid,
-        subjects: Vec<Uuid>,
+        is_system_role: bool,
+        modules: Vec<String>,
         expires_at: DateTime<Utc>,
         issuer: &str,
     ) -> Self {
         let now = Utc::now();
-        let subject_strings: Vec<String> = subjects.iter().map(|s| s.to_string()).collect();
 
         Self {
             iss: issuer.to_string(),
@@ -49,11 +50,8 @@ impl Claims {
             jti: Uuid::now_v7().to_string(),
             sub: user_id.to_string(),
             role_id: role_id.to_string(),
-            subjects: if subject_strings.is_empty() {
-                None
-            } else {
-                Some(subject_strings)
-            },
+            is_system_role,
+            modules,
             token_type: "access".to_string(),
         }
     }
@@ -70,7 +68,8 @@ impl Claims {
             jti: Uuid::now_v7().to_string(),
             sub: user_id.to_string(),
             role_id: String::new(), // refresh token 不需要角色
-            subjects: None,
+            is_system_role: false,
+            modules: Vec::new(),
             token_type: "refresh".to_string(),
         }
     }
@@ -85,23 +84,19 @@ impl Claims {
         Uuid::parse_str(&self.role_id)
     }
 
-    /// 获取可访问的患者列表
-    pub fn accessible_subjects(&self) -> Vec<Uuid> {
-        match &self.subjects {
-            Some(subjects) => subjects
-                .iter()
-                .filter_map(|s| Uuid::parse_str(s).ok())
-                .collect(),
-            None => Vec::new(),
+    /// 检查是否拥有指定模块权限
+    pub fn can_access_module(&self, module: &str) -> bool {
+        // 系统角色拥有所有权限
+        if self.is_system_role {
+            return true;
         }
+        // 检查模块列表
+        self.modules.contains(&module.to_string())
     }
 
-    /// 检查是否可以访问指定患者
-    pub fn can_access_subject(&self, subject_id: &Uuid) -> bool {
-        match &self.subjects {
-            Some(subjects) => subjects.contains(&subject_id.to_string()),
-            None => true, // 如果没有限制，则可以访问所有
-        }
+    /// 获取可访问模块列表
+    pub fn accessible_modules(&self) -> &[String] {
+        &self.modules
     }
 
     /// 检查是否为 access token

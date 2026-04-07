@@ -12,11 +12,10 @@ use uuid::Uuid;
 use crate::config::JwtConfig;
 use crate::core::auth::Claims;
 use crate::core::entity::NewRefreshToken;
-use crate::core::value_object::SystemRole;
 use crate::dto::request::{ChangePasswordRequest, LoginRequest, RefreshTokenRequest, RegisterRequest, RevokeTokenRequest, VerifyTokenRequest};
 use crate::dto::response::{LoginResponse, RefreshTokenResponse, RegisterResponse, RevokeResponse, SessionInfo, SessionListResponse, UserInfo, VerifyTokenResponse};
 use crate::errors::{AppError, AppResult};
-use crate::repository::{RefreshTokenRepository, RoleRepository, UserRepository};
+use crate::repository::{ModulePermissionRepository, RefreshTokenRepository, RoleRepository, UserRepository};
 
 const JWT_ISSUER: &str = "remipedia";
 const JWT_AUDIENCE: &str = "remipedia-api";
@@ -39,9 +38,9 @@ impl<'a> JwtVerifier<'a> {
     }
 
     /// 验证 Access Token
-    /// 返回 (user_id, role_id)
+    /// 返回 (user_id, role_id, is_system_role, modules)
     pub fn verify_access_token(&self, token: &str
-    ) -> AppResult<(Uuid, Uuid, Vec<Uuid>)> {
+    ) -> AppResult<(Uuid, Uuid, bool, Vec<String>)> {
         let token_data = decode::<Claims>(
             token,
             &DecodingKey::from_secret(self.jwt_config.secret.as_bytes()),
@@ -58,15 +57,15 @@ impl<'a> JwtVerifier<'a> {
 
         let user_id = claims.user_id()?;
         let role_id = claims.role_id()?;
-        let subjects = claims.accessible_subjects();
 
-        Ok((user_id, role_id, subjects))
+        Ok((user_id, role_id, claims.is_system_role, claims.modules))
     }
 }
 
 pub struct AuthService<'a> {
     user_repo: UserRepository<'a>,
     role_repo: RoleRepository<'a>,
+    module_perm_repo: ModulePermissionRepository<'a>,
     refresh_token_repo: RefreshTokenRepository<'a>,
     jwt_config: &'a JwtConfig,
 }
@@ -76,6 +75,7 @@ impl<'a> AuthService<'a> {
         Self {
             user_repo: UserRepository::new(pool),
             role_repo: RoleRepository::new(pool),
+            module_perm_repo: ModulePermissionRepository::new(pool),
             refresh_token_repo: RefreshTokenRepository::new(pool),
             jwt_config,
         }
@@ -107,12 +107,13 @@ impl<'a> AuthService<'a> {
         // 更新最后登录时间
         self.user_repo.update_last_login(&user.id).await?;
 
-        // 获取用户可访问的患者列表
-        let subjects = self.user_repo.get_accessible_subjects(&user.id).await?;
+        // 获取角色的模块权限
+        let (is_system_role, accessible_modules) = 
+            self.module_perm_repo.get_accessible_modules(&user.role_id).await?;
 
         // 生成令牌
         let (access_token, expires_at) = self.generate_access_token(
-            &user.id, &user.role_id, &subjects
+            &user.id, &user.role_id, is_system_role, &accessible_modules
         )?;
         let refresh_token = self.generate_refresh_token(&user.id).await?;
 
@@ -131,6 +132,8 @@ impl<'a> AuthService<'a> {
                 username: user.username,
                 role_id: user.role_id.to_string(),
                 role_name,
+                is_system_role,
+                accessible_modules,
                 email: user.email,
                 status: user.status,
                 created_at: user.created_at,
@@ -164,12 +167,13 @@ impl<'a> AuthService<'a> {
         // 撤销旧的 refresh token
         self.refresh_token_repo.revoke(&token_hash).await?;
 
-        // 获取可访问患者列表
-        let subjects = self.user_repo.get_accessible_subjects(&user.id).await?;
+        // 获取角色的模块权限
+        let (is_system_role, accessible_modules) = 
+            self.module_perm_repo.get_accessible_modules(&user.role_id).await?;
 
         // 生成新的令牌
         let (access_token, expires_at) = self.generate_access_token(
-            &user.id, &user.role_id, &subjects
+            &user.id, &user.role_id, is_system_role, &accessible_modules
         )?;
         let refresh_token = self.generate_refresh_token(&user.id).await?;
 
@@ -229,12 +233,18 @@ impl<'a> AuthService<'a> {
         let user = self.user_repo.find_by_id(user_id).await?;
         let role = self.role_repo.find_by_id(&user.role_id).await?;
         let role_name = role.map(|r| r.name).unwrap_or_else(|| "unknown".to_string());
+        
+        // 获取模块权限
+        let (is_system_role, accessible_modules) = 
+            self.module_perm_repo.get_accessible_modules(&user.role_id).await?;
 
         Ok(UserInfo {
             id: user.id.to_string(),
             username: user.username,
             role_id: user.role_id.to_string(),
             role_name,
+            is_system_role,
+            accessible_modules,
             email: user.email,
             status: user.status,
             created_at: user.created_at,
@@ -269,7 +279,7 @@ impl<'a> AuthService<'a> {
         let default_role = self.role_repo.find_by_name("caregiver").await?;
         let role_id = default_role
             .map(|r| r.id)
-            .unwrap_or(SystemRole::SUPER_ADMIN_ID);
+            .ok_or_else(|| AppError::ConfigError("默认角色未找到".into()))?;
 
         // 哈希密码
         let password_hash = Self::hash_password(&req.password)?;
@@ -286,6 +296,10 @@ impl<'a> AuthService<'a> {
         let user = self.user_repo.insert(&new_user).await?;
         let role = self.role_repo.find_by_id(&user.role_id).await?;
         let role_name = role.map(|r| r.name).unwrap_or_else(|| "unknown".to_string());
+        
+        // 获取模块权限
+        let (is_system_role, accessible_modules) = 
+            self.module_perm_repo.get_accessible_modules(&user.role_id).await?;
 
         info!("用户注册成功: user_id={}", user.id);
 
@@ -296,6 +310,8 @@ impl<'a> AuthService<'a> {
                 username: user.username,
                 role_id: user.role_id.to_string(),
                 role_name,
+                is_system_role,
+                accessible_modules,
                 email: user.email,
                 status: user.status,
                 created_at: user.created_at,
@@ -352,25 +368,13 @@ impl<'a> AuthService<'a> {
         &self, req: VerifyTokenRequest
     ) -> AppResult<VerifyTokenResponse> {
         match JwtVerifier::new(self.jwt_config).verify_access_token(&req.access_token) {
-            Ok((user_id, _, _)) => {
+            Ok((user_id, _, _, _)) => {
                 // 获取完整用户信息
-                match self.user_repo.find_by_id(&user_id).await {
-                    Ok(user) => {
-                        let role = self.role_repo.find_by_id(&user.role_id).await?;
-                        let role_name = role.map(|r| r.name).unwrap_or_else(|| "unknown".to_string());
-                        
+                match self.get_me(&user_id).await {
+                    Ok(user_info) => {
                         Ok(VerifyTokenResponse {
                             valid: true,
-                            user: Some(UserInfo {
-                                id: user.id.to_string(),
-                                username: user.username,
-                                role_id: user.role_id.to_string(),
-                                role_name,
-                                email: user.email,
-                                status: user.status,
-                                created_at: user.created_at,
-                                last_login_at: user.last_login_at,
-                            }),
+                            user: Some(user_info),
                         })
                     }
                     Err(_) => Ok(VerifyTokenResponse {
@@ -402,10 +406,18 @@ impl<'a> AuthService<'a> {
         &self,
         user_id: &Uuid,
         role_id: &Uuid,
-        subjects: &[Uuid],
+        is_system_role: bool,
+        modules: &[String],
     ) -> AppResult<(String, chrono::DateTime<Utc>)> {
         let expires_at = Utc::now() + Duration::hours(self.jwt_config.expiration_hours as i64);
-        let claims = Claims::new_access(user_id, role_id, subjects.to_vec(), expires_at, JWT_ISSUER);
+        let claims = Claims::new_access(
+            user_id, 
+            role_id, 
+            is_system_role,
+            modules.to_vec(),
+            expires_at, 
+            JWT_ISSUER
+        );
 
         let token = encode(
             &Header::default(),

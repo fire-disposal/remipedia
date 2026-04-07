@@ -1,20 +1,23 @@
 use rocket::http::Status;
 use rocket::request::{FromRequest, Outcome};
 use rocket::Request;
-use sqlx::PgPool;
 use uuid::Uuid;
 
 use crate::config::JwtConfig;
-use crate::core::value_object::SystemRole;
+use crate::core::value_object::Module;
 use crate::errors::AppError;
 use crate::repository::RoleRepository;
 use crate::service::JwtVerifier;
 
-/// 认证用户信息
+/// 认证用户信息（基础守卫）
 #[derive(Debug, Clone)]
 pub struct AuthenticatedUser {
     pub id: Uuid,
     pub role_id: Uuid,
+    /// 是否为系统角色（拥有通配权限）
+    pub is_system_role: bool,
+    /// 可访问模块列表
+    pub accessible_modules: Vec<String>,
 }
 
 #[rocket::async_trait]
@@ -33,8 +36,13 @@ impl<'r> FromRequest<'r> for AuthenticatedUser {
                     Some(config) => {
                         let verifier = JwtVerifier::new(config);
                         match verifier.verify_access_token(token) {
-                            Ok((user_id, role_id, _subjects)) => {
-                                Outcome::Success(Self { id: user_id, role_id })
+                            Ok((user_id, role_id, is_system_role, modules)) => {
+                                Outcome::Success(Self {
+                                    id: user_id,
+                                    role_id,
+                                    is_system_role,
+                                    accessible_modules: modules,
+                                })
                             }
                             Err(e) => Outcome::Error((Status::Unauthorized, e)),
                         }
@@ -53,12 +61,14 @@ impl<'r> FromRequest<'r> for AuthenticatedUser {
     }
 }
 
-/// 超级管理员守卫
+/// 系统角色守卫（拥有通配权限）
+/// 
+/// 用于管理功能，如角色管理、审计日志等
 #[derive(Debug, Clone)]
-pub struct SuperAdminGuard(pub AuthenticatedUser);
+pub struct SystemRoleGuard(pub AuthenticatedUser);
 
 #[rocket::async_trait]
-impl<'r> FromRequest<'r> for SuperAdminGuard {
+impl<'r> FromRequest<'r> for SystemRoleGuard {
     type Error = AppError;
 
     async fn from_request(request: &'r Request<'_>) -> Outcome<Self, Self::Error> {
@@ -66,7 +76,7 @@ impl<'r> FromRequest<'r> for SuperAdminGuard {
 
         match user {
             Outcome::Success(user) => {
-                if SystemRole::is_super_admin(&user.role_id) {
+                if user.is_system_role {
                     Outcome::Success(Self(user))
                 } else {
                     Outcome::Error((Status::Forbidden, AppError::Forbidden))
@@ -78,23 +88,40 @@ impl<'r> FromRequest<'r> for SuperAdminGuard {
     }
 }
 
-/// 权限守卫
+/// 模块权限守卫
 /// 
-/// 用于检查用户是否有访问特定资源的权限。
-/// 会自动从请求路径和 HTTP 方法推断资源类型和操作类型。
-pub struct PermissionGuard {
+/// 检查用户是否有访问特定模块的权限
+#[derive(Debug, Clone)]
+pub struct ModuleGuard {
     pub user: AuthenticatedUser,
-    pub resource: &'static str,
-    pub action: &'static str,
+    pub module: Module,
 }
 
-pub struct PermissionGuardFactory {
-    pub resource: &'static str,
-    pub action: &'static str,
+impl ModuleGuard {
+    /// 检查用户是否有权限访问指定模块
+    pub fn can_access(&self, module: Module) -> bool {
+        // 系统角色拥有所有权限
+        if self.user.is_system_role {
+            return true;
+        }
+        // 检查模块是否在可访问列表中
+        self.user.accessible_modules.contains(&module.as_str().to_string())
+    }
+}
+
+/// 模块守卫工厂（用于从请求推断模块）
+pub struct ModuleGuardFactory {
+    pub module: Module,
+}
+
+impl ModuleGuardFactory {
+    pub const fn new(module: Module) -> Self {
+        Self { module }
+    }
 }
 
 #[rocket::async_trait]
-impl<'r> FromRequest<'r> for PermissionGuard {
+impl<'r> FromRequest<'r> for ModuleGuard {
     type Error = AppError;
 
     async fn from_request(request: &'r Request<'_>) -> Outcome<Self, Self::Error> {
@@ -105,128 +132,118 @@ impl<'r> FromRequest<'r> for PermissionGuard {
             Outcome::Forward(f) => return Outcome::Forward(f),
         };
 
-        // 获取请求路径中的资源类型（从路径推断）
-        let path = request.uri().path().as_str();
-        let (resource, action) = parse_permission_from_path(path, request.method().as_str());
-
-        // 获取数据库连接
-        let pool = match request.rocket().state::<PgPool>() {
-            Some(pool) => pool,
-            None => {
-                return Outcome::Error((
-                    Status::InternalServerError,
-                    AppError::ConfigError("数据库连接池未初始化".into()),
-                ))
-            }
-        };
-
-        // 检查权限
-        let role_repo = RoleRepository::new(pool);
-        match role_repo.has_permission(&user.role_id, resource, action).await {
-            Ok(true) => Outcome::Success(Self {
+        // 系统角色直接通过，不检查具体模块
+        if user.is_system_role {
+            return Outcome::Success(Self {
                 user,
-                resource,
-                action,
-            }),
-            Ok(false) => Outcome::Error((Status::Forbidden, AppError::Forbidden)),
-            Err(e) => Outcome::Error((Status::InternalServerError, e)),
+                module: Module::Dashboard, // 占位，实际不限制
+            });
+        }
+
+        // 从请求路径推断模块
+        let path = request.uri().path().as_str();
+        let module = parse_module_from_path(path);
+
+        // 检查是否有权限
+        if user.accessible_modules.contains(&module.as_str().to_string()) {
+            Outcome::Success(Self { user, module })
+        } else {
+            Outcome::Error((Status::Forbidden, AppError::Forbidden))
         }
     }
 }
 
-/// 从路径和 HTTP 方法推断权限
-pub(crate) fn parse_permission_from_path(path: &str, method: &str) -> (&'static str, &'static str) {
+/// 从路径推断模块
+fn parse_module_from_path(path: &str) -> Module {
     let parts: Vec<&str> = path.split('/').filter(|s| !s.is_empty()).collect();
     
-    // 获取资源类型（通常是 /api/v1/ 后的第一个路径段）
-    let resource = if parts.len() >= 2 && parts[0] == "api" {
+    // 获取路径中的模块标识
+    let module_code = if parts.len() >= 2 && parts[0] == "api" {
         if parts.len() >= 3 {
             parts[2]
         } else {
-            "unknown"
+            "dashboard"
         }
     } else if !parts.is_empty() {
         parts[0]
     } else {
-        "unknown"
+        "dashboard"
     };
 
-    // 从 HTTP 方法推断操作
-    let action = match method.to_uppercase().as_str() {
-        "GET" => {
-            // 检查是否是列表请求（路径以 s 结尾或包含 list）
-            if path.ends_with('s') || path.contains("list") || path.contains("history") {
-                "list"
+    // 映射到模块枚举
+    match module_code {
+        "patients" => Module::Patients,
+        "devices" => Module::Devices,
+        "bindings" => Module::Bindings,
+        "data" => Module::Data,
+        "users" => Module::Users,
+        "admin" => {
+            // admin 路径需要进一步判断
+            if parts.len() >= 4 {
+                match parts[3] {
+                    "roles" | "permissions" => Module::Roles,
+                    "audit-logs" => Module::AuditLogs,
+                    _ => Module::Settings,
+                }
             } else {
-                "read"
+                Module::Settings
             }
         }
-        "POST" => {
-            if path.contains("switch") || path.contains("end") || path.contains("acknowledge") {
-                "update"
-            } else {
-                "create"
-            }
-        }
-        "PUT" | "PATCH" => "update",
-        "DELETE" => "delete",
-        _ => "read",
-    };
-
-    // 处理特殊路径
-    let resource: &'static str = match resource {
-        "patients" => "patient",
-        "devices" => "device",
-        "bindings" => "binding",
-        "data" => "data",
-        "users" => "user",
-        "auth" => "auth",
-        "admin" => "system",
-        _ => Box::leak(resource.to_string().into_boxed_str()),
-    };
-
-    (resource, action)
+        "settings" => Module::Settings,
+        "pressure-ulcer" => Module::PressureUlcer,
+        _ => Module::Dashboard,
+    }
 }
 
-/// 自定义权限守卫（显式指定资源和操作）
+/// 显式模块守卫（指定模块）
+/// 
+/// 用法示例：
+/// ```rust
+/// #[get("/patients")]
+/// async fn list_patients(
+///     _guard: ExplicitModuleGuard<{ Module::Patients }>,
+/// ) -> Json<...>
+/// ```
+#[derive(Clone)]
+pub struct ExplicitModuleGuard {
+    pub user: AuthenticatedUser,
+    pub module: Module,
+}
+
+impl ExplicitModuleGuard {
+    pub fn new(user: AuthenticatedUser, module: Module) -> Self {
+        Self { user, module }
+    }
+    
+    /// 创建守卫检查函数（用于路由宏）
+    pub fn check(user: &AuthenticatedUser, module: Module) -> bool {
+        if user.is_system_role {
+            return true;
+        }
+        user.accessible_modules.contains(&module.as_str().to_string())
+    }
+}
+
+// 保留旧守卫以兼容（标记为 deprecated）
+/// 超级管理员守卫（已废弃，请使用 SystemRoleGuard）
+#[deprecated(since = "0.2.0", note = "请使用 SystemRoleGuard 替代")]
+pub type SuperAdminGuard = SystemRoleGuard;
+
+/// 权限守卫（已废弃，请使用 ModuleGuard）
+#[deprecated(since = "0.2.0", note = "请使用 ModuleGuard 替代")]
+pub type PermissionGuard = ModuleGuard;
+
+/// 自定义权限守卫（已废弃）
+#[deprecated(since = "0.2.0", note = "功能已移除")]
 #[derive(Clone)]
 pub struct RequirePermission {
     pub resource: &'static str,
     pub action: &'static str,
 }
 
+#[allow(deprecated)]
 impl RequirePermission {
     pub const fn new(resource: &'static str, action: &'static str) -> Self {
         Self { resource, action }
-    }
-}
-
-#[rocket::async_trait]
-impl<'r> FromRequest<'r> for RequirePermission {
-    type Error = AppError;
-
-    async fn from_request(request: &'r Request<'_>) -> Outcome<Self, Self::Error> {
-        let _user = match AuthenticatedUser::from_request(request).await {
-            Outcome::Success(user) => user,
-            Outcome::Error(e) => return Outcome::Error(e),
-            Outcome::Forward(f) => return Outcome::Forward(f),
-        };
-
-        let _pool = match request.rocket().state::<PgPool>() {
-            Some(pool) => pool,
-            None => {
-                return Outcome::Error((
-                    Status::InternalServerError,
-                    AppError::ConfigError("数据库连接池未初始化".into()),
-                ))
-            }
-        };
-
-        // 从请求守卫属性获取资源/操作（通过状态传递）
-        // 这里简化处理，实际应该通过路由宏传递
-        Outcome::Success(Self {
-            resource: "any",
-            action: "any",
-        })
     }
 }

@@ -41,6 +41,10 @@ pub struct UserInfo {
     pub role_id: String,
     /// 角色名称
     pub role_name: String,
+    /// 是否为系统角色（拥有通配权限）
+    pub is_system_role: bool,
+    /// 可访问模块列表（["*"] 表示通配）
+    pub accessible_modules: Vec<String>,
     /// 邮箱
     pub email: Option<String>,
     /// 状态

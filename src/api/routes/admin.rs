@@ -7,7 +7,7 @@ use sqlx::PgPool;
 use utoipa::OpenApi;
 use uuid::Uuid;
 
-use crate::api::guards::SuperAdminGuard;
+use crate::api::guards::SystemRoleGuard;
 use crate::dto::response::{
     AssignPermissionRequest, AuditLogListResponse, AuditLogResponse,
     CreateRoleRequest, PermissionListResponse, RoleListResponse, RolePermissionResponse,
@@ -32,7 +32,7 @@ use crate::service::AdminService;
 #[get("/admin/roles")]
 pub async fn list_roles(
     pool: &State<PgPool>,
-    _admin: SuperAdminGuard,
+    _guard: SystemRoleGuard,
 ) -> AppResult<Json<RoleListResponse>> {
     let service = AdminService::new(pool);
     let response = service.list_roles().await?;
@@ -59,7 +59,7 @@ pub async fn list_roles(
 #[get("/admin/roles/<id>")]
 pub async fn get_role(
     pool: &State<PgPool>,
-    _admin: SuperAdminGuard,
+    _guard: SystemRoleGuard,
     id: &str,
 ) -> AppResult<Json<RoleResponse>> {
     let id = Uuid::parse_str(id).map_err(|_| AppError::ValidationError("无效的角色ID".into()))?;
@@ -86,7 +86,7 @@ pub async fn get_role(
 #[post("/admin/roles", data = "<req>")]
 pub async fn create_role(
     pool: &State<PgPool>,
-    _admin: SuperAdminGuard,
+    _guard: SystemRoleGuard,
     req: Json<CreateRoleRequest>,
 ) -> AppResult<(Status, Json<RoleResponse>)> {
     let service = AdminService::new(pool);
@@ -116,7 +116,7 @@ pub async fn create_role(
 #[put("/admin/roles/<id>", data = "<req>")]
 pub async fn update_role(
     pool: &State<PgPool>,
-    _admin: SuperAdminGuard,
+    _guard: SystemRoleGuard,
     id: &str,
     req: Json<UpdateRoleRequest>,
 ) -> AppResult<Json<RoleResponse>> {
@@ -147,7 +147,7 @@ pub async fn update_role(
 #[delete("/admin/roles/<id>")]
 pub async fn delete_role(
     pool: &State<PgPool>,
-    _admin: SuperAdminGuard,
+    _guard: SystemRoleGuard,
     id: &str,
 ) -> AppResult<Status> {
     let id = Uuid::parse_str(id).map_err(|_| AppError::ValidationError("无效的角色ID".into()))?;
@@ -176,7 +176,7 @@ pub async fn delete_role(
 #[get("/admin/roles/<id>/permissions")]
 pub async fn get_role_permissions(
     pool: &State<PgPool>,
-    _admin: SuperAdminGuard,
+    _guard: SystemRoleGuard,
     id: &str,
 ) -> AppResult<Json<RolePermissionResponse>> {
     let id = Uuid::parse_str(id).map_err(|_| AppError::ValidationError("无效的角色ID".into()))?;
@@ -206,7 +206,7 @@ pub async fn get_role_permissions(
 #[post("/admin/roles/<id>/permissions", data = "<req>")]
 pub async fn assign_permission(
     pool: &State<PgPool>,
-    _admin: SuperAdminGuard,
+    _guard: SystemRoleGuard,
     id: &str,
     req: Json<AssignPermissionRequest>,
 ) -> AppResult<Status> {
@@ -237,7 +237,7 @@ pub async fn assign_permission(
 #[delete("/admin/roles/<id>/permissions/<permission_id>")]
 pub async fn revoke_permission(
     pool: &State<PgPool>,
-    _admin: SuperAdminGuard,
+    _guard: SystemRoleGuard,
     id: &str,
     permission_id: &str,
 ) -> AppResult<Status> {
@@ -265,7 +265,7 @@ pub async fn revoke_permission(
 #[get("/admin/permissions")]
 pub async fn list_permissions(
     pool: &State<PgPool>,
-    _admin: SuperAdminGuard,
+    _guard: SystemRoleGuard,
 ) -> AppResult<Json<PermissionListResponse>> {
     let service = AdminService::new(pool);
     let permissions = service.list_permissions().await?;
@@ -298,7 +298,7 @@ pub async fn list_permissions(
 #[get("/admin/audit-logs?<user_id>&<action>&<resource>&<status>&<start_time>&<end_time>&<page>&<page_size>")]
 pub async fn list_audit_logs(
     pool: &State<PgPool>,
-    _admin: SuperAdminGuard,
+    _guard: SystemRoleGuard,
     user_id: Option<String>,
     action: Option<String>,
     resource: Option<String>,
@@ -352,7 +352,7 @@ pub async fn list_audit_logs(
 #[get("/admin/audit-logs/<id>")]
 pub async fn get_audit_log(
     pool: &State<PgPool>,
-    _admin: SuperAdminGuard,
+    _guard: SystemRoleGuard,
     id: &str,
 ) -> AppResult<Json<AuditLogResponse>> {
     let id = Uuid::parse_str(id).map_err(|_| AppError::ValidationError("无效的日志ID".into()))?;

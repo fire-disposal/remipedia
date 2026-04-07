@@ -6,7 +6,7 @@ use sqlx::PgPool;
 use utoipa::OpenApi;
 use uuid::Uuid;
 
-use crate::api::guards::SuperAdminGuard;
+use crate::api::guards::SystemRoleGuard;
 use crate::dto::request::{CreateUserRequest, UpdateUserRequest, UserQuery};
 use crate::dto::response::UserListResponse;
 use crate::dto::response::UserResponse;
@@ -31,7 +31,7 @@ use crate::service::UserService;
 #[post("/users", data = "<req>")]
 pub async fn create_user(
     pool: &State<PgPool>,
-    _admin: SuperAdminGuard,
+    _guard: SystemRoleGuard,
     req: Json<CreateUserRequest>,
 ) -> AppResult<(Status, Json<UserResponse>)> {
     let service = UserService::new(pool);
@@ -58,7 +58,7 @@ pub async fn create_user(
 #[get("/users/<id>")]
 pub async fn get_user(
     pool: &State<PgPool>,
-    _admin: SuperAdminGuard,
+    _guard: SystemRoleGuard,
     id: &str,
 ) -> AppResult<Json<UserResponse>> {
     let id = Uuid::parse_str(id).map_err(|_| AppError::ValidationError("无效的用户 ID".into()))?;
@@ -87,7 +87,7 @@ pub async fn get_user(
 #[put("/users/<id>", data = "<req>")]
 pub async fn update_user(
     pool: &State<PgPool>,
-    _admin: SuperAdminGuard,
+    _guard: SystemRoleGuard,
     id: &str,
     req: Json<UpdateUserRequest>,
 ) -> AppResult<Json<UserResponse>> {
@@ -116,11 +116,11 @@ pub async fn update_user(
 #[delete("/users/<id>")]
 pub async fn delete_user(
     pool: &State<PgPool>,
-    admin: SuperAdminGuard,
+    guard: SystemRoleGuard,
     id: &str,
 ) -> AppResult<Status> {
     let id = Uuid::parse_str(id).map_err(|_| AppError::ValidationError("无效的用户 ID".into()))?;
-    if admin.0.id == id {
+    if guard.0.id == id {
         return Err(AppError::ValidationError("不允许删除当前管理员账号".into()));
     }
     let service = UserService::new(pool);
@@ -149,7 +149,7 @@ pub async fn delete_user(
 #[get("/users?<role_id>&<status>&<page>&<page_size>")]
 pub async fn list_users(
     pool: &State<PgPool>,
-    _admin: SuperAdminGuard,
+    _guard: SystemRoleGuard,
     role_id: Option<String>,
     status: Option<String>,
     page: Option<u32>,

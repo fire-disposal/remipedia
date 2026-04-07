@@ -69,7 +69,7 @@ async-trait = "0.1"
 
 # OpenAPI / Swagger
 utoipa = { version = "5", features = ["uuid", "chrono"] }
-utoipa-swagger-ui = { version = "9", features = ["rocket", "vendored"] }
+utoipa-swagger-ui = { version = "8", features = ["rocket", "vendored"] }
 tokio-tungstenite = { version = "0.29.0", features = ["native-tls"] }
 futures-util = "0.3.32"
 

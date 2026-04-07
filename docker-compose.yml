@@ -11,8 +11,8 @@ services:
       - "5858:5858"
     environment:
       - APP_DATABASE_URL=postgresql://postgres:postgres@postgres:5432/remipedia
-      - APP_MQTT_BROKER=mqtt
-      - APP_MQTT_PORT=1883
+      - APP_MQTT__BROKER=mqtt
+      - APP_MQTT__PORT=1883
       - APP_JWT_SECRET=remipedia-jwt-secret-change-if-needed
       - RUST_LOG=remipedia=info,sqlx=warn
     depends_on:

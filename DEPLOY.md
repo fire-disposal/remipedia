@@ -5,29 +5,29 @@
 - Docker 20.10+
 - Docker Compose 2.0+
 
-## 一键部署
+## 部署方式
+
+### 一键部署
 
 ```bash
 ./deploy.sh
 ```
 
-## 手动部署
+### 手动部署
 
 ```bash
 docker-compose up -d
 ```
 
-## 访问服务
+## 服务访问
 
-| 服务 | 地址 |
-|------|------|
-| API | http://localhost:8000 |
-| Swagger | http://localhost:8000/swagger |
-| TCP床垫数据 | localhost:5858 |
+- **API**: http://localhost:8000
+- **Swagger**: http://localhost:8000/swagger
+- **TCP数据**: localhost:5858
 
-## 数据库访问（SSH隧道）
+## 数据库访问
 
-数据库仅在Docker内部网络可访问，通过SSH隧道安全连接：
+通过SSH隧道连接：
 
 ```bash
 # 建立隧道
@@ -38,16 +38,14 @@ psql -h localhost -U postgres -d remipedia
 # 密码: postgres
 ```
 
-## GitHub Actions 自动部署
+## GitHub Actions自动部署
 
-需要配置4个Secrets：
+配置4个Secrets：
 
-| Secret | 说明 |
-|--------|------|
-| DEPLOY_HOST | 服务器IP |
-| DEPLOY_USER | SSH用户 |
-| DEPLOY_KEY | SSH私钥 |
-| DEPLOY_PATH | 部署路径 |
+- DEPLOY_HOST: 服务器IP
+- DEPLOY_USER: SSH用户
+- DEPLOY_KEY: SSH私钥
+- DEPLOY_PATH: 部署路径
 
 推送tag或合并main分支自动触发部署。
 

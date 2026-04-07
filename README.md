@@ -1,74 +1,69 @@
 # Remipedia
 
-Remipedia 是一个基于 Rust 的 IoT 健康数据平台，支持多协议设备数据接入、实时处理和数据管理。
+Rust IoT健康数据平台，支持MQTT/TCP/WebSocket多协议接入。
 
-## 功能特性
+## 功能
 
-- **多协议数据接入**：支持 MQTT、TCP、WebSocket 三种协议
-- **设备自动注册**：首次上报自动创建设备记录
-- **设备适配器框架**：可扩展的设备适配器架构
-- **JWT 认证**：基于 access token + refresh token 的认证机制
-- **数据管道**：基于队列的异步数据摄入管道
-- **OpenAPI 文档**：自动生成 Swagger UI
+- 多协议数据接入（MQTT、TCP、WebSocket）
+- 设备自动注册
+- 设备适配器框架
+- JWT认证（access/refresh token）
+- 异步数据管道
+- OpenAPI/Swagger文档
 
 ## 技术栈
 
-- **Web 框架**: Rocket 0.5
-- **数据库**: PostgreSQL 16 + SQLx
-- **异步运行时**: Tokio
-- **MQTT 客户端**: rumqttc
-- **认证**: JWT + Argon2
-- **API 文档**: utoipa + Swagger UI
+**Web框架**: Rocket 0.5  
+**数据库**: PostgreSQL 16 + SQLx  
+**异步运行时**: Tokio  
+**MQTT**: rumqttc  
+**认证**: JWT + Argon2  
+**API文档**: utoipa + Swagger UI
 
 ## 快速开始
 
-### 本地开发
-
 ```bash
-# 启动依赖服务
+# 启动依赖
 docker-compose up -d postgres mqtt
 
 # 运行应用
 cargo run
 ```
 
-访问 http://localhost:8000/swagger 查看 API 文档。
+访问 http://localhost:8000/swagger 查看API文档。
 
-### 部署
+## 部署
 
 ```bash
-# 使用 Docker Compose 部署
+# 本地Docker部署
 docker-compose up -d
-```
 
-或参考 [DEPLOY.md](DEPLOY.md) 使用 GitHub Actions 自动部署。
+# 或使用GitHub Actions自动部署
+# 参考 DEPLOY.md
+```
 
 ## 项目结构
 
 ```
 src/
-├── api/              # HTTP 接口层 (Rocket)
-├── service/          # 业务逻辑层
-├── repository/       # 数据访问层 (SQLx)
-├── core/             # 领域模型
-├── ingest/           # 数据接入层 (MQTT/TCP/WebSocket)
-├── dto/              # 数据传输对象
-└── config/           # 配置管理
+api/         HTTP接口层
+service/     业务逻辑层
+repository/  数据访问层（SQLx）
+core/        领域模型
+ingest/      数据接入（MQTT/TCP/WebSocket）
+dto/         数据传输对象
+config/      配置管理
 ```
 
 ## 数据接入
 
-支持三种协议的数据接入：
-
-| 协议 | 端口 | 用途 |
-|------|------|------|
-| MQTT | 1883 | 设备数据上报 |
-| TCP | 5858 | 二进制协议设备 |
-| WebSocket | 5859 | WebSocket 设备 |
+**MQTT**: 1883端口 - 设备数据上报  
+**TCP**: 5858端口 - 二进制协议设备  
+**WebSocket**: 5859端口 - WebSocket设备
 
 ## 配置
 
-通过环境变量覆盖配置（使用双下划线作为分隔符）：
+环境变量使用双下划线分隔：
 
 ```bash
 APP_DATABASE__URL=postgresql://user:pass@host/db
@@ -78,9 +73,9 @@ APP_MQTT__PORT=1883
 
 ## 文档
 
-- [DEPLOY.md](DEPLOY.md) - 部署指南
-- [ARCHITECTURE.md](ARCHITECTURE.md) - 架构设计文档
-- [TODO.md](TODO.md) - 开发任务清单
+- DEPLOY.md - 部署指南
+- ARCHITECTURE.md - 架构设计
+- TODO.md - 开发任务
 
 ## 许可证
 

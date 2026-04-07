@@ -122,11 +122,11 @@ WHERE name = 'super_admin';
 DO $$
 BEGIN
     IF NOT EXISTS (SELECT 1 FROM roles WHERE is_system = true) THEN
-        UPDATE roles 
-        SET is_system = true 
-        WHERE name = 'admin' 
-           OR name = 'super_admin' 
-        LIMIT 1;
+        UPDATE roles
+        SET is_system = true
+        WHERE id = (
+            SELECT id FROM roles WHERE name = 'super_admin' OR name = 'admin' LIMIT 1
+        );
     END IF;
 END $$;
 

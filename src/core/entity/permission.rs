@@ -3,7 +3,8 @@ use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
 use uuid::Uuid;
 
-/// 权限实体
+/// 权限实体（已废弃，保留用于数据库兼容）
+#[deprecated(since = "0.2.0", note = "请使用模块级权限替代")]
 #[derive(Debug, Clone, FromRow, Serialize, Deserialize)]
 pub struct Permission {
     pub id: Uuid,

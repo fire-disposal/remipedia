@@ -1,5 +1,4 @@
 use crate::core::entity::Module;
-use crate::core::value_object::Module as ModuleEnum;
 use crate::errors::{AppError, AppResult};
 use sqlx::PgPool;
 use uuid::Uuid;
@@ -11,6 +10,31 @@ pub struct ModulePermissionRepository<'a> {
 impl<'a> ModulePermissionRepository<'a> {
     pub fn new(pool: &'a PgPool) -> Self {
         Self { pool }
+    }
+
+    /// 列出所有模块
+    pub async fn list_all_modules(&self) -> AppResult<Vec<Module>> {
+        let modules = sqlx::query_as::<_, Module>(
+            "SELECT * FROM modules WHERE is_active = true ORDER BY category, code"
+        )
+        .fetch_all(self.pool)
+        .await
+        .map_err(AppError::DatabaseError)?;
+        
+        Ok(modules)
+    }
+
+    /// 检查模块是否存在
+    pub async fn module_exists(&self, module_id: &Uuid) -> AppResult<bool> {
+        let result: Option<(bool,)> = sqlx::query_as(
+            "SELECT true FROM modules WHERE id = $1 AND is_active = true"
+        )
+        .bind(module_id)
+        .fetch_optional(self.pool)
+        .await
+        .map_err(AppError::DatabaseError)?;
+        
+        Ok(result.is_some())
     }
 
     /// 获取角色的模块权限列表
@@ -97,5 +121,18 @@ impl<'a> ModulePermissionRepository<'a> {
         .map_err(AppError::DatabaseError)?;
         
         Ok(())
+    }
+
+    /// 获取角色的模块ID列表
+    pub async fn get_role_module_ids(&self, role_id: &Uuid) -> AppResult<Vec<Uuid>> {
+        let module_ids: Vec<(Uuid,)> = sqlx::query_as(
+            r#"SELECT module_id FROM role_modules WHERE role_id = $1"#,
+        )
+        .bind(role_id)
+        .fetch_all(self.pool)
+        .await
+        .map_err(AppError::DatabaseError)?;
+        
+        Ok(module_ids.into_iter().map(|(id,)| id).collect())
     }
 }

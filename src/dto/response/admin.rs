@@ -37,7 +37,51 @@ pub struct UpdateRoleRequest {
     pub description: Option<String>,
 }
 
-/// 权限响应
+/// 模块响应
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct ModuleResponse {
+    pub id: Uuid,
+    pub code: String,
+    pub name: String,
+    pub description: Option<String>,
+    pub category: String,
+    pub is_active: bool,
+    pub created_at: DateTime<Utc>,
+}
+
+/// 模块列表响应
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct ModuleListResponse {
+    pub modules: Vec<ModuleResponse>,
+}
+
+/// 角色模块响应
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct RoleModuleResponse {
+    pub role_id: Uuid,
+    pub modules: Vec<ModuleResponse>,
+}
+
+/// 分配模块请求
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct AssignModuleRequest {
+    pub module_id: Uuid,
+}
+
+/// 批量分配模块请求
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct BatchAssignModulesRequest {
+    pub module_ids: Vec<Uuid>,
+}
+
+/// 设置角色模块请求
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct SetRoleModulesRequest {
+    pub module_ids: Vec<Uuid>,
+}
+
+/// 权限响应（已废弃，保留向后兼容）
+#[deprecated(since = "0.2.0", note = "请使用 ModuleResponse 替代")]
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct PermissionResponse {
     pub id: Uuid,
@@ -47,20 +91,23 @@ pub struct PermissionResponse {
     pub created_at: DateTime<Utc>,
 }
 
-/// 权限列表响应
+/// 权限列表响应（已废弃，保留向后兼容）
+#[deprecated(since = "0.2.0", note = "请使用 ModuleListResponse 替代")]
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct PermissionListResponse {
     pub permissions: Vec<PermissionResponse>,
 }
 
-/// 角色权限响应
+/// 角色权限响应（已废弃，保留向后兼容）
+#[deprecated(since = "0.2.0", note = "请使用 RoleModuleResponse 替代")]
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct RolePermissionResponse {
     pub role_id: Uuid,
     pub permissions: Vec<PermissionResponse>,
 }
 
-/// 分配权限请求
+/// 分配权限请求（已废弃，保留向后兼容）
+#[deprecated(since = "0.2.0", note = "请使用 AssignModuleRequest 替代")]
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct AssignPermissionRequest {
     pub permission_id: Uuid,

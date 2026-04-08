@@ -5,7 +5,7 @@ use sqlx::PgPool;
 use utoipa::OpenApi;
 use uuid::Uuid;
 
-use crate::api::guards::AuthenticatedUser;
+use crate::api::guards::ModuleGuard;
 use crate::dto::request::DataReportRequest;
 use crate::dto::response::{DataQueryResponse, DataReportResponse};
 use crate::errors::AppResult;
@@ -28,7 +28,7 @@ use crate::service::DataService;
 #[post("/data", data = "<req>")]
 pub async fn report_data(
     pool: &State<PgPool>,
-    _user: AuthenticatedUser,
+    _guard: ModuleGuard,
     req: Json<DataReportRequest>,
 ) -> AppResult<Json<DataReportResponse>> {
     let service = DataService::new(pool);
@@ -63,7 +63,7 @@ pub async fn report_data(
 #[get("/data?<patient_id>&<device_id>&<data_type>&<data_category>&<severity>&<status>&<start_time>&<end_time>&<page>&<page_size>")]
 pub async fn query_data(
     pool: &State<PgPool>,
-    _user: AuthenticatedUser,
+    _guard: ModuleGuard,
     patient_id: Option<String>,
     device_id: Option<String>,
     data_type: Option<String>,

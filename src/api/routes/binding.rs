@@ -6,7 +6,7 @@ use sqlx::PgPool;
 use utoipa::OpenApi;
 use uuid::Uuid;
 
-use crate::api::guards::AuthenticatedUser;
+use crate::api::guards::ModuleGuard;
 use crate::dto::request::{CreateBindingRequest, EndBindingRequest, SwitchBindingRequest};
 use crate::dto::response::BindingListResponse;
 use crate::dto::response::BindingResponse;
@@ -32,7 +32,7 @@ use crate::service::BindingService;
 #[get("/bindings/<id>")]
 pub async fn get_binding(
     pool: &State<PgPool>,
-    _user: AuthenticatedUser,
+    _guard: ModuleGuard,
     id: &str,
 ) -> AppResult<Json<BindingResponse>> {
     let id = Uuid::parse_str(id).map_err(|_| AppError::ValidationError("无效的绑定 ID".into()))?;
@@ -63,7 +63,7 @@ pub async fn get_binding(
 #[get("/bindings?<device_id>&<patient_id>&<active_only>&<page>&<page_size>")]
 pub async fn list_bindings(
     pool: &State<PgPool>,
-    _user: AuthenticatedUser,
+    _guard: ModuleGuard,
     device_id: Option<String>,
     patient_id: Option<String>,
     active_only: Option<bool>,
@@ -104,7 +104,7 @@ pub async fn list_bindings(
 #[post("/bindings", data = "<req>")]
 pub async fn create_binding(
     pool: &State<PgPool>,
-    _user: AuthenticatedUser,
+    _guard: ModuleGuard,
     req: Json<CreateBindingRequest>,
 ) -> AppResult<(Status, Json<BindingResponse>)> {
     let service = BindingService::new(pool);
@@ -131,7 +131,7 @@ pub async fn create_binding(
 #[delete("/bindings/<id>")]
 pub async fn delete_binding(
     pool: &State<PgPool>,
-    _user: AuthenticatedUser,
+    _guard: ModuleGuard,
     id: &str,
 ) -> AppResult<Status> {
     let id = Uuid::parse_str(id).map_err(|_| AppError::ValidationError("无效的绑定 ID".into()))?;
@@ -160,7 +160,7 @@ pub async fn delete_binding(
 #[post("/bindings/<id>/end", data = "<req>")]
 pub async fn end_binding(
     pool: &State<PgPool>,
-    _user: AuthenticatedUser,
+    _guard: ModuleGuard,
     id: &str,
     req: Json<EndBindingRequest>,
 ) -> AppResult<Json<BindingResponse>> {
@@ -188,7 +188,7 @@ pub async fn end_binding(
 #[post("/bindings/switch", data = "<req>")]
 pub async fn switch_binding(
     pool: &State<PgPool>,
-    _user: AuthenticatedUser,
+    _guard: ModuleGuard,
     req: Json<SwitchBindingRequest>,
 ) -> AppResult<(Status, Json<BindingResponse>)> {
     let service = BindingService::new(pool);
@@ -217,7 +217,7 @@ pub async fn switch_binding(
 #[get("/bindings/history?<device_id>&<patient_id>&<page>&<page_size>")]
 pub async fn list_binding_history(
     pool: &State<PgPool>,
-    _user: AuthenticatedUser,
+    _guard: ModuleGuard,
     device_id: Option<String>,
     patient_id: Option<String>,
     page: Option<u32>,

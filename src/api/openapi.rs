@@ -41,16 +41,18 @@ use utoipa_swagger_ui::SwaggerUi;
         // Data
         crate::api::routes::data::report_data,
         crate::api::routes::data::query_data,
-        // Admin - Roles & Permissions
+        // Admin - Roles & Modules
         crate::api::routes::admin::list_roles,
         crate::api::routes::admin::get_role,
         crate::api::routes::admin::create_role,
         crate::api::routes::admin::update_role,
         crate::api::routes::admin::delete_role,
-        crate::api::routes::admin::get_role_permissions,
-        crate::api::routes::admin::assign_permission,
-        crate::api::routes::admin::revoke_permission,
-        crate::api::routes::admin::list_permissions,
+        crate::api::routes::admin::get_role_modules,
+        crate::api::routes::admin::set_role_modules,
+        crate::api::routes::admin::assign_module,
+        crate::api::routes::admin::batch_assign_modules,
+        crate::api::routes::admin::revoke_module,
+        crate::api::routes::admin::list_modules,
         // Admin - Audit Logs
         crate::api::routes::admin::list_audit_logs,
         crate::api::routes::admin::get_audit_log,
@@ -79,10 +81,12 @@ use utoipa_swagger_ui::SwaggerUi;
             crate::dto::request::DataReportRequest,
             crate::dto::request::DataQuery,
             crate::dto::request::RawDataQuery,
-            // Admin - Role & Permission Request DTOs
+            // Admin - Role & Module Request DTOs
             crate::dto::response::CreateRoleRequest,
             crate::dto::response::UpdateRoleRequest,
-            crate::dto::response::AssignPermissionRequest,
+            crate::dto::response::AssignModuleRequest,
+            crate::dto::response::BatchAssignModulesRequest,
+            crate::dto::response::SetRoleModulesRequest,
             crate::dto::response::AuditLogQueryParams,
             // Response DTOs
             crate::dto::response::LoginResponse,
@@ -105,12 +109,12 @@ use utoipa_swagger_ui::SwaggerUi;
             crate::dto::response::RawDataRecordResponse,
             crate::dto::response::RawDataQueryResponse,
             crate::dto::response::Pagination,
-            // Admin - Role & Permission Response DTOs
+            // Admin - Role & Module Response DTOs
             crate::dto::response::RoleResponse,
             crate::dto::response::RoleListResponse,
-            crate::dto::response::PermissionResponse,
-            crate::dto::response::PermissionListResponse,
-            crate::dto::response::RolePermissionResponse,
+            crate::dto::response::ModuleResponse,
+            crate::dto::response::ModuleListResponse,
+            crate::dto::response::RoleModuleResponse,
             crate::dto::response::AuditLogResponse,
             crate::dto::response::AuditLogListResponse,
             crate::api::routes::ingest::MqttProtocolDoc,

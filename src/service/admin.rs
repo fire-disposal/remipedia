@@ -1,13 +1,13 @@
-use crate::core::entity::{AuditLogQuery, NewAuditLog, NewRole, Permission, Role, UpdateRole};
-use crate::dto::response::{AuditLogListResponse, AuditLogResponse, PermissionResponse, RoleListResponse, RolePermissionResponse, RoleResponse};
+use crate::core::entity::{AuditLogQuery, NewAuditLog, NewRole, Role, UpdateRole};
+use crate::dto::response::{AuditLogListResponse, AuditLogResponse, ModuleListResponse, RoleListResponse, RoleModuleResponse, RoleResponse};
 use crate::errors::{AppError, AppResult};
-use crate::repository::{AuditLogRepository, PermissionRepository, RoleRepository};
+use crate::repository::{AuditLogRepository, ModulePermissionRepository, RoleRepository};
 use sqlx::PgPool;
 use uuid::Uuid;
 
 pub struct AdminService<'a> {
     role_repo: RoleRepository<'a>,
-    permission_repo: PermissionRepository<'a>,
+    module_perm_repo: ModulePermissionRepository<'a>,
     audit_log_repo: AuditLogRepository<'a>,
 }
 
@@ -15,7 +15,7 @@ impl<'a> AdminService<'a> {
     pub fn new(pool: &'a PgPool) -> Self {
         Self {
             role_repo: RoleRepository::new(pool),
-            permission_repo: PermissionRepository::new(pool),
+            module_perm_repo: ModulePermissionRepository::new(pool),
             audit_log_repo: AuditLogRepository::new(pool),
         }
     }
@@ -112,63 +112,98 @@ impl<'a> AdminService<'a> {
         Ok(())
     }
 
-    // ===== 权限管理 =====
+    // ===== 模块管理 =====
 
-    pub async fn list_permissions(&self) -> AppResult<Vec<PermissionResponse>> {
-        let permissions = self.permission_repo.list_all().await?;
-        Ok(permissions.into_iter().map(|p| p.into()).collect())
-    }
-
-    pub async fn get_role_permissions(
-        &self,
-        role_id: &Uuid,
-    ) -> AppResult<RolePermissionResponse> {
-        // 检查角色是否存在
-        if self.role_repo.find_by_id(role_id).await?.is_none() {
-            return Err(AppError::NotFound(format!("角色: {}", role_id)));
-        }
-
-        let permissions = self.role_repo.get_permissions(role_id).await?;
-        Ok(RolePermissionResponse {
-            role_id: *role_id,
-            permissions: permissions.into_iter().map(|p| p.into()).collect(),
+    pub async fn list_modules(&self) -> AppResult<ModuleListResponse> {
+        let modules = self.module_perm_repo.list_all_modules().await?;
+        Ok(ModuleListResponse {
+            modules: modules.into_iter().map(|m| m.into()).collect(),
         })
     }
 
-    pub async fn assign_permission(
-        &self,
-        role_id: &Uuid,
-        permission_id: &Uuid,
-    ) -> AppResult<()> {
-        // 检查角色是否存在
+    pub async fn get_role_modules(&self, role_id: &Uuid) -> AppResult<RoleModuleResponse> {
         if self.role_repo.find_by_id(role_id).await?.is_none() {
             return Err(AppError::NotFound(format!("角色: {}", role_id)));
         }
 
-        // 检查权限是否存在
-        if self.permission_repo.find_by_id(permission_id).await?.is_none() {
-            return Err(AppError::NotFound(format!("权限: {}", permission_id)));
+        let modules = self.module_perm_repo.get_role_modules(role_id).await?;
+        Ok(RoleModuleResponse {
+            role_id: *role_id,
+            modules: modules.into_iter().map(|m| m.into()).collect(),
+        })
+    }
+
+    pub async fn assign_module(&self, role_id: &Uuid, module_id: &Uuid) -> AppResult<()> {
+        if self.role_repo.find_by_id(role_id).await?.is_none() {
+            return Err(AppError::NotFound(format!("角色: {}", role_id)));
         }
 
-        self.role_repo
-            .assign_permission(role_id, permission_id)
-            .await?;
+        if !self.module_perm_repo.module_exists(module_id).await? {
+            return Err(AppError::NotFound(format!("模块: {}", module_id)));
+        }
+
+        self.module_perm_repo.assign_module(role_id, module_id).await?;
         Ok(())
     }
 
-    pub async fn revoke_permission(
-        &self,
-        role_id: &Uuid,
-        permission_id: &Uuid,
-    ) -> AppResult<()> {
-        // 检查角色是否存在
+    pub async fn revoke_module(&self, role_id: &Uuid, module_id: &Uuid) -> AppResult<()> {
         if self.role_repo.find_by_id(role_id).await?.is_none() {
             return Err(AppError::NotFound(format!("角色: {}", role_id)));
         }
 
-        self.role_repo
-            .revoke_permission(role_id, permission_id)
-            .await?;
+        self.module_perm_repo.revoke_module(role_id, module_id).await?;
+        Ok(())
+    }
+
+    pub async fn batch_assign_modules(&self, role_id: &Uuid, module_ids: &[Uuid]) -> AppResult<()> {
+        if self.role_repo.find_by_id(role_id).await?.is_none() {
+            return Err(AppError::NotFound(format!("角色: {}", role_id)));
+        }
+
+        for module_id in module_ids {
+            if self.module_perm_repo.module_exists(module_id).await? {
+                self.module_perm_repo.assign_module(role_id, module_id).await?;
+            }
+        }
+        
+        Ok(())
+    }
+
+    pub async fn batch_revoke_modules(&self, role_id: &Uuid, module_ids: &[Uuid]) -> AppResult<()> {
+        if self.role_repo.find_by_id(role_id).await?.is_none() {
+            return Err(AppError::NotFound(format!("角色: {}", role_id)));
+        }
+
+        for module_id in module_ids {
+            self.module_perm_repo.revoke_module(role_id, module_id).await?;
+        }
+        
+        Ok(())
+    }
+
+    pub async fn set_role_modules(&self, role_id: &Uuid, module_ids: &[Uuid]) -> AppResult<()> {
+        if self.role_repo.find_by_id(role_id).await?.is_none() {
+            return Err(AppError::NotFound(format!("角色: {}", role_id)));
+        }
+
+        let current_modules = self.module_perm_repo.get_role_module_ids(role_id).await?;
+        
+        let current_set: std::collections::HashSet<Uuid> = current_modules.into_iter().collect();
+        let new_set: std::collections::HashSet<Uuid> = module_ids.iter().cloned().collect();
+
+        let to_add: Vec<Uuid> = new_set.difference(&current_set).cloned().collect();
+        let to_remove: Vec<Uuid> = current_set.difference(&new_set).cloned().collect();
+
+        for module_id in to_add {
+            if self.module_perm_repo.module_exists(&module_id).await? {
+                self.module_perm_repo.assign_module(role_id, &module_id).await?;
+            }
+        }
+
+        for module_id in to_remove {
+            self.module_perm_repo.revoke_module(role_id, &module_id).await?;
+        }
+
         Ok(())
     }
 
@@ -239,14 +274,16 @@ impl From<Role> for RoleResponse {
     }
 }
 
-impl From<Permission> for PermissionResponse {
-    fn from(perm: Permission) -> Self {
+impl From<crate::core::entity::Module> for crate::dto::response::ModuleResponse {
+    fn from(module: crate::core::entity::Module) -> Self {
         Self {
-            id: perm.id,
-            resource: perm.resource,
-            action: perm.action,
-            description: perm.description,
-            created_at: perm.created_at,
+            id: module.id,
+            code: module.code,
+            name: module.name,
+            description: module.description,
+            category: module.category,
+            is_active: module.is_active,
+            created_at: module.created_at,
         }
     }
 }

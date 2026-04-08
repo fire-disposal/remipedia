@@ -1,5 +1,4 @@
-use crate::core::entity::{NewRole, Permission, Role, UpdateRole};
-use crate::core::value_object::SystemRole;
+use crate::core::entity::{NewRole, Role, UpdateRole};
 use crate::errors::{AppError, AppResult};
 use sqlx::PgPool;
 use uuid::Uuid;
@@ -82,82 +81,6 @@ impl<'a> RoleRepository<'a> {
             .execute(self.pool)
             .await
             .map_err(AppError::DatabaseError)?;
-        Ok(())
-    }
-
-    /// 获取角色的所有权限
-    pub async fn get_permissions(&self, role_id: &Uuid) -> AppResult<Vec<Permission>> {
-        let permissions = sqlx::query_as::<_, Permission>(
-            r#"SELECT p.* FROM permissions p
-               INNER JOIN role_permissions rp ON p.id = rp.permission_id
-               WHERE rp.role_id = $1
-               ORDER BY p.resource, p.action"#,
-        )
-        .bind(role_id)
-        .fetch_all(self.pool)
-        .await
-        .map_err(AppError::DatabaseError)?;
-        Ok(permissions)
-    }
-
-    /// 检查角色是否拥有指定权限
-    pub async fn has_permission(
-        &self,
-        role_id: &Uuid,
-        resource: &str,
-        action: &str,
-    ) -> AppResult<bool> {
-        // 超级管理员拥有所有权限
-        if SystemRole::is_super_admin(role_id) {
-            return Ok(true);
-        }
-
-        let result: Option<(i64,)> = sqlx::query_as(
-            r#"SELECT 1 FROM role_permissions rp
-               INNER JOIN permissions p ON rp.permission_id = p.id
-               WHERE rp.role_id = $1 AND p.resource = $2 AND p.action = $3
-               LIMIT 1"#,
-        )
-        .bind(role_id)
-        .bind(resource)
-        .bind(action)
-        .fetch_optional(self.pool)
-        .await
-        .map_err(AppError::DatabaseError)?;
-
-        Ok(result.is_some())
-    }
-
-    /// 为角色分配权限
-    pub async fn assign_permission(&self, role_id: &Uuid, permission_id: &Uuid) -> AppResult<()> {
-        sqlx::query(
-            r#"INSERT INTO role_permissions (role_id, permission_id) 
-               VALUES ($1, $2)
-               ON CONFLICT (role_id, permission_id) DO NOTHING"#,
-        )
-        .bind(role_id)
-        .bind(permission_id)
-        .execute(self.pool)
-        .await
-        .map_err(AppError::DatabaseError)?;
-        Ok(())
-    }
-
-    /// 移除角色的权限
-    pub async fn revoke_permission(
-        &self,
-        role_id: &Uuid,
-        permission_id: &Uuid,
-    ) -> AppResult<()> {
-        sqlx::query(
-            r#"DELETE FROM role_permissions 
-               WHERE role_id = $1 AND permission_id = $2"#,
-        )
-        .bind(role_id)
-        .bind(permission_id)
-        .execute(self.pool)
-        .await
-        .map_err(AppError::DatabaseError)?;
         Ok(())
     }
 }

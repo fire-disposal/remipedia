@@ -6,7 +6,7 @@ use sqlx::PgPool;
 use utoipa::OpenApi;
 use uuid::Uuid;
 
-use crate::api::guards::AuthenticatedUser;
+use crate::api::guards::ModuleGuard;
 use crate::dto::request::{DeviceQuery, RegisterDeviceRequest, UpdateDeviceRequest};
 use crate::dto::response::BindingListResponse;
 use crate::dto::response::DeviceListResponse;
@@ -47,7 +47,7 @@ pub struct DeviceStatsResponse {
 #[post("/devices", data = "<req>")]
 pub async fn register_device(
     pool: &State<PgPool>,
-    _user: AuthenticatedUser,
+    _guard: ModuleGuard,
     req: Json<RegisterDeviceRequest>,
 ) -> AppResult<(Status, Json<DeviceResponse>)> {
     let service = DeviceService::new(pool);
@@ -74,7 +74,7 @@ pub async fn register_device(
 #[get("/devices/<id>")]
 pub async fn get_device(
     pool: &State<PgPool>,
-    _user: AuthenticatedUser,
+    _guard: ModuleGuard,
     id: &str,
 ) -> AppResult<Json<DeviceResponse>> {
     let id = Uuid::parse_str(id).map_err(|_| AppError::ValidationError("无效的设备 ID".into()))?;
@@ -103,7 +103,7 @@ pub async fn get_device(
 #[put("/devices/<id>", data = "<req>")]
 pub async fn update_device(
     pool: &State<PgPool>,
-    _user: AuthenticatedUser,
+    _guard: ModuleGuard,
     id: &str,
     req: Json<UpdateDeviceRequest>,
 ) -> AppResult<Json<DeviceResponse>> {
@@ -132,7 +132,7 @@ pub async fn update_device(
 #[delete("/devices/<id>")]
 pub async fn delete_device(
     pool: &State<PgPool>,
-    _user: AuthenticatedUser,
+    _guard: ModuleGuard,
     id: &str,
 ) -> AppResult<Status> {
     let id = Uuid::parse_str(id).map_err(|_| AppError::ValidationError("无效的设备 ID".into()))?;
@@ -163,7 +163,7 @@ pub async fn delete_device(
 #[get("/devices?<device_type>&<status>&<serial_number>&<page>&<page_size>")]
 pub async fn list_devices(
     pool: &State<PgPool>,
-    _user: AuthenticatedUser,
+    _guard: ModuleGuard,
     device_type: Option<String>,
     status: Option<String>,
     serial_number: Option<String>,
@@ -209,7 +209,7 @@ pub fn routes() -> Vec<rocket::Route> {
 #[get("/devices/stats")]
 pub async fn get_device_stats(
     pool: &State<PgPool>,
-    _user: AuthenticatedUser,
+    _guard: ModuleGuard,
 ) -> AppResult<Json<DeviceStatsResponse>> {
     let service = DeviceService::new(pool);
     let stats = service.get_stats().await?;
@@ -236,7 +236,7 @@ pub async fn get_device_stats(
 #[get("/devices/<id>/bindings?<page>&<page_size>")]
 pub async fn get_device_bindings(
     pool: &State<PgPool>,
-    _user: AuthenticatedUser,
+    _guard: ModuleGuard,
     id: &str,
     page: Option<u32>,
     page_size: Option<u32>,

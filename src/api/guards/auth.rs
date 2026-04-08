@@ -6,7 +6,6 @@ use uuid::Uuid;
 use crate::config::JwtConfig;
 use crate::core::value_object::Module;
 use crate::errors::AppError;
-use crate::repository::RoleRepository;
 use crate::service::JwtVerifier;
 
 /// 认证用户信息（基础守卫）

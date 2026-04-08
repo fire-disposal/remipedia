@@ -6,7 +6,7 @@ use sqlx::PgPool;
 use utoipa::OpenApi;
 use uuid::Uuid;
 
-use crate::api::guards::AuthenticatedUser;
+use crate::api::guards::ModuleGuard;
 use crate::dto::request::{CreatePatientRequest, CreatePatientProfileRequest, PatientQuery, UpdatePatientRequest};
 use crate::dto::response::{PatientDetailResponse, PatientListResponse, PatientResponse, PatientProfileResponse};
 use crate::dto::response::DeviceResponse;
@@ -30,7 +30,7 @@ use crate::service::PatientService;
 #[post("/patients", data = "<req>")]
 pub async fn create_patient(
     pool: &State<PgPool>,
-    _user: AuthenticatedUser,
+    _guard: ModuleGuard,
     req: Json<CreatePatientRequest>,
 ) -> AppResult<(Status, Json<PatientResponse>)> {
     let service = PatientService::new(pool);
@@ -57,7 +57,7 @@ pub async fn create_patient(
 #[get("/patients/<id>")]
 pub async fn get_patient(
     pool: &State<PgPool>,
-    _user: AuthenticatedUser,
+    _guard: ModuleGuard,
     id: &str,
 ) -> AppResult<Json<PatientResponse>> {
     let id = Uuid::parse_str(id).map_err(|_| AppError::ValidationError("无效的患者 ID".into()))?;
@@ -85,7 +85,7 @@ pub async fn get_patient(
 #[get("/patients/<id>/detail")]
 pub async fn get_patient_detail(
     pool: &State<PgPool>,
-    _user: AuthenticatedUser,
+    _guard: ModuleGuard,
     id: &str,
 ) -> AppResult<Json<PatientDetailResponse>> {
     let id = Uuid::parse_str(id).map_err(|_| AppError::ValidationError("无效的患者 ID".into()))?;
@@ -114,7 +114,7 @@ pub async fn get_patient_detail(
 #[get("/patients/<id>/devices?<active_only>")]
 pub async fn get_patient_devices(
     pool: &State<PgPool>,
-    _user: AuthenticatedUser,
+    _guard: ModuleGuard,
     id: &str,
     active_only: Option<bool>,
 ) -> AppResult<Json<Vec<DeviceResponse>>> {
@@ -144,7 +144,7 @@ pub async fn get_patient_devices(
 #[put("/patients/<id>", data = "<req>")]
 pub async fn update_patient(
     pool: &State<PgPool>,
-    _user: AuthenticatedUser,
+    _guard: ModuleGuard,
     id: &str,
     req: Json<UpdatePatientRequest>,
 ) -> AppResult<Json<PatientResponse>> {
@@ -173,7 +173,7 @@ pub async fn update_patient(
 #[delete("/patients/<id>")]
 pub async fn delete_patient(
     pool: &State<PgPool>,
-    _user: AuthenticatedUser,
+    _guard: ModuleGuard,
     id: &str,
 ) -> AppResult<Status> {
     let id = Uuid::parse_str(id).map_err(|_| AppError::ValidationError("无效的患者 ID".into()))?;
@@ -203,7 +203,7 @@ pub async fn delete_patient(
 #[get("/patients?<name>&<external_id>&<page>&<page_size>")]
 pub async fn list_patients(
     pool: &State<PgPool>,
-    _user: AuthenticatedUser,
+    _guard: ModuleGuard,
     name: Option<String>,
     external_id: Option<String>,
     page: Option<u32>,
@@ -239,7 +239,7 @@ pub async fn list_patients(
 #[get("/patients/<id>/profile")]
 pub async fn get_patient_profile(
     pool: &State<PgPool>,
-    _user: AuthenticatedUser,
+    _guard: ModuleGuard,
     id: &str,
 ) -> AppResult<Json<Option<PatientProfileResponse>>> {
     let id = Uuid::parse_str(id).map_err(|_| AppError::ValidationError("无效的患者 ID".into()))?;
@@ -268,7 +268,7 @@ pub async fn get_patient_profile(
 #[put("/patients/<id>/profile", data = "<req>")]
 pub async fn update_patient_profile(
     pool: &State<PgPool>,
-    _user: AuthenticatedUser,
+    _guard: ModuleGuard,
     id: &str,
     req: Json<CreatePatientProfileRequest>,
 ) -> AppResult<Json<PatientProfileResponse>> {
@@ -297,7 +297,7 @@ pub async fn update_patient_profile(
 #[delete("/patients/<id>/profile")]
 pub async fn delete_patient_profile(
     pool: &State<PgPool>,
-    _user: AuthenticatedUser,
+    _guard: ModuleGuard,
     id: &str,
 ) -> AppResult<Status> {
     let id = Uuid::parse_str(id).map_err(|_| AppError::ValidationError("无效的患者 ID".into()))?;

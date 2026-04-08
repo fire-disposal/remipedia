@@ -46,4 +46,23 @@ pub struct Pagination {
     pub page_size: u32,
     /// 总记录数
     pub total: i64,
+    /// 总页数
+    pub total_pages: u32,
+}
+
+impl Pagination {
+    /// 计算分页信息
+    pub fn new(page: u32, page_size: u32, total: i64) -> Self {
+        let total_pages = if page_size > 0 {
+            ((total as f64) / (page_size as f64)).ceil() as u32
+        } else {
+            0
+        };
+        Self {
+            page,
+            page_size,
+            total,
+            total_pages,
+        }
+    }
 }

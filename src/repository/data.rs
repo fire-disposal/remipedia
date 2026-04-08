@@ -43,17 +43,49 @@ impl<'a> DataRepository<'a> {
         Ok(result)
     }
 
-    /// 批量插入数据点
+    /// 批量插入数据点（单事务批量插入，性能优化）
     pub async fn insert_datapoints(
-        &self, data_points: &[DataPoint]
+        &self,
+        data_points: &[DataPoint],
     ) -> AppResult<Vec<Datasheet>> {
+        if data_points.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        let mut tx = self.pool.begin().await.map_err(AppError::DatabaseError)?;
+
         let mut results = Vec::with_capacity(data_points.len());
-        
+
         for dp in data_points {
-            let result = self.insert_datapoint(dp).await?;
+            let result = sqlx::query_as::<_, Datasheet>(
+                r#"INSERT INTO datasheet (
+                    time, device_id, patient_id, data_type, data_category,
+                    value_numeric, value_text, severity, status, payload, source
+                ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+                RETURNING 
+                    time, device_id, patient_id, data_type, data_category,
+                    value_numeric, value_text, severity, status, payload, source, ingested_at"#,
+            )
+            .bind(dp.time)
+            .bind(dp.device_id)
+            .bind(dp.patient_id)
+            .bind(&dp.data_type)
+            .bind(dp.data_category.to_string())
+            .bind(dp.value_numeric)
+            .bind(&dp.value_text)
+            .bind(dp.severity.as_ref().map(|s| s.to_string()))
+            .bind(dp.status.as_ref().map(|s| s.to_string()))
+            .bind(&dp.payload)
+            .bind(&dp.source)
+            .fetch_one(&mut *tx)
+            .await
+            .map_err(AppError::DatabaseError)?;
+
             results.push(result);
         }
-        
+
+        tx.commit().await.map_err(AppError::DatabaseError)?;
+
         Ok(results)
     }
 

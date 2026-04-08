@@ -122,11 +122,7 @@ impl<'a> DataService<'a> {
 
         Ok(DataQueryResponse {
             data: records,
-            pagination: Pagination {
-                page: query.page,
-                page_size: query.page_size,
-                total,
-            },
+            pagination: Pagination::new(query.page, query.page_size, total),
         })
     }
 
@@ -153,11 +149,7 @@ impl<'a> DataService<'a> {
 
         Ok(DataQueryResponse {
             data: records,
-            pagination: Pagination {
-                page: query.page,
-                page_size: query.page_size,
-                total,
-            },
+            pagination: Pagination::new(query.page, query.page_size, total),
         })
     }
 

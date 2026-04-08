@@ -100,11 +100,7 @@ impl<'a> BindingService<'a> {
 
         Ok(BindingListResponse {
             data,
-            pagination: Pagination {
-                page,
-                page_size,
-                total,
-            },
+            pagination: Pagination::new(page, page_size, total),
         })
     }
 
@@ -128,11 +124,7 @@ impl<'a> BindingService<'a> {
 
         Ok(BindingListResponse {
             data,
-            pagination: Pagination {
-                page,
-                page_size,
-                total,
-            },
+            pagination: Pagination::new(page, page_size, total),
         })
     }
 
@@ -170,11 +162,7 @@ impl<'a> BindingService<'a> {
 
         Ok(BindingListResponse {
             data,
-            pagination: Pagination {
-                page,
-                page_size,
-                total,
-            },
+            pagination: Pagination::new(page, page_size, total),
         })
     }
 

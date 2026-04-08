@@ -1,7 +1,10 @@
 use rocket::serde::json::Json;
 use rocket::{get, State};
+use rocket::http::{ContentType, Header};
+use rocket::response::stream::ByteStream;
 use sqlx::PgPool;
 use utoipa::ToSchema;
+use std::io::Cursor;
 
 use crate::api::guards::AuthenticatedUser;
 use crate::config::MqttConfig;
@@ -149,6 +152,74 @@ pub async fn query_raw_data(
     Ok(Json(response))
 }
 
+/// 导出原始数据
+#[utoipa::path(
+    get,
+    path = "/ingest/raw/export",
+    tag = "ingest",
+    security(
+        ("bearer_auth" = [])
+    ),
+    params(
+        ("source" = Option<String>, Query, description = "来源筛选"),
+        ("serial_number" = Option<String>, Query, description = "序列号筛选"),
+        ("device_type" = Option<String>, Query, description = "设备类型筛选"),
+        ("status" = Option<String>, Query, description = "状态筛选"),
+        ("start_time" = Option<String>, Query, description = "开始时间 (RFC3339)"),
+        ("end_time" = Option<String>, Query, description = "结束时间 (RFC3339)"),
+        ("format" = Option<String>, Query, description = "导出格式 (json 或 csv，默认json)"),
+    ),
+    responses(
+        (status = 200, description = "导出成功", body = String),
+    )
+)]
+#[get("/ingest/raw/export?<source>&<serial_number>&<device_type>&<status>&<start_time>&<end_time>&<format>")]
+pub async fn export_raw_data(
+    pool: &State<PgPool>,
+    _user: AuthenticatedUser,
+    source: Option<String>,
+    serial_number: Option<String>,
+    device_type: Option<String>,
+    status: Option<String>,
+    start_time: Option<String>,
+    end_time: Option<String>,
+    format: Option<String>,
+) -> AppResult<Vec<u8>> {
+    let service = IngestRawService::new(pool);
+
+    let query = RawDataQuery {
+        source,
+        serial_number,
+        device_type,
+        status,
+        start_time: start_time.as_ref().and_then(|s| {
+            chrono::DateTime::parse_from_rfc3339(s)
+                .ok()
+                .map(|dt| dt.with_timezone(&chrono::Utc))
+        }),
+        end_time: end_time.as_ref().and_then(|s| {
+            chrono::DateTime::parse_from_rfc3339(s)
+                .ok()
+                .map(|dt| dt.with_timezone(&chrono::Utc))
+        }),
+        page: 1,
+        page_size: 10000,
+    };
+
+    let response = service.query(query).await?;
+
+    let export_format = format.unwrap_or_else(|| "json".to_string());
+    let data = match export_format.to_lowercase().as_str() {
+        "csv" => service.export_csv(&response.data)?,
+        _ => {
+            serde_json::to_vec_pretty(&response.data)
+                .map_err(|e| crate::errors::AppError::ValidationError(format!("JSON序列化失败: {}", e)))?
+        }
+    };
+
+    Ok(data)
+}
+
 pub fn routes() -> Vec<rocket::Route> {
-    rocket::routes![mqtt_protocol_doc, query_raw_data]
+    rocket::routes![mqtt_protocol_doc, query_raw_data, export_raw_data]
 }

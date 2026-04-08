@@ -1,7 +1,7 @@
 use crate::core::entity::{RawDataQuery as CoreRawDataQuery, RawDataRecord, RawIngestStatus};
 use crate::dto::request::RawDataQuery;
 use crate::dto::response::{Pagination, RawDataQueryResponse, RawDataRecordResponse};
-use crate::errors::AppResult;
+use crate::errors::{AppError, AppResult};
 use crate::repository::RawDataRepository;
 use sqlx::PgPool;
 
@@ -34,12 +34,45 @@ impl<'a> IngestRawService<'a> {
 
         Ok(RawDataQueryResponse {
             data: records,
-            pagination: Pagination {
-                page: query.page,
-                page_size: query.page_size,
-                total,
-            },
+            pagination: Pagination::new(query.page, query.page_size, total),
         })
+    }
+
+    /// 导出为CSV格式
+    pub fn export_csv(&self, records: &[RawDataRecordResponse]) -> AppResult<Vec<u8>> {
+        let mut wtr = csv::Writer::from_writer(vec![]);
+
+        wtr.write_record([
+            "id",
+            "source",
+            "serial_number",
+            "device_type",
+            "status",
+            "status_message",
+            "payload_size",
+            "received_at",
+            "processed_at",
+            "created_at",
+        ]).map_err(|e| AppError::ValidationError(format!("CSV写入失败: {}", e)))?;
+
+        for record in records {
+            wtr.write_record([
+                record.id.to_string(),
+                record.source.clone(),
+                record.serial_number.clone().unwrap_or_default(),
+                record.device_type.clone().unwrap_or_default(),
+                record.status.clone(),
+                record.status_message.clone().unwrap_or_default(),
+                record.payload_size.to_string(),
+                record.received_at.to_rfc3339(),
+                record.processed_at.map(|t| t.to_rfc3339()).unwrap_or_default(),
+                record.created_at.to_rfc3339(),
+            ]).map_err(|e| AppError::ValidationError(format!("CSV写入失败: {}", e)))?;
+        }
+
+        wtr.flush().map_err(|e| AppError::ValidationError(format!("CSV刷新失败: {}", e)))?;
+
+        Ok(wtr.into_inner().map_err(|e| AppError::ValidationError(format!("CSV获取数据失败: {}", e)))?)
     }
 }
 

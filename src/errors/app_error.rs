@@ -43,6 +43,9 @@ pub enum AppError {
     #[error("资源耗尽: {0}")]
     ResourceExhausted(String),
 
+    #[error("IO错误: {0}")]
+    IoError(#[from] std::io::Error),
+
     #[error("内部错误")]
     InternalError,
 }
@@ -69,6 +72,7 @@ impl<'r> Responder<'r, 'r> for AppError {
             Self::ConfigError(_) => Status::InternalServerError,
             Self::UuidError => Status::BadRequest,
             Self::ResourceExhausted(_) => Status::ServiceUnavailable,
+            Self::IoError(_) => Status::InternalServerError,
             Self::DatabaseError(_) => Status::InternalServerError,
             Self::InternalError => Status::InternalServerError,
         };

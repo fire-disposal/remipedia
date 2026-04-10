@@ -24,7 +24,7 @@ csv = "1"
 chrono = { version = "0.4", features = ["serde"] }
 
 # UUID
-uuid = { version = "1", features = ["v7", "serde"] }
+uuid = { version = "1", features = ["v4", "v7", "serde"] }
 
 # 配置
 config = "0.14"

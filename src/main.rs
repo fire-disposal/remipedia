@@ -14,10 +14,7 @@ use sqlx::PgPool;
 use remipedia::api::routes;
 use remipedia::api::swagger_ui;
 use remipedia::config::Settings;
-use remipedia::ingest::{
-    transport::{MqttTransportV2, TcpTransportV2, WebSocketTransportV2},
-    AdapterRegistry, IngestionPipeline, PipelineConfig,
-};
+use remipedia::ingest::modules::{mattress, vision, imu, ModuleRegistry};
 use remipedia::repository::UserRepository;
 
 static MIGRATOR: sqlx::migrate::Migrator = sqlx::migrate!();
@@ -112,19 +109,62 @@ async fn run_migrations(pool: &PgPool) -> anyhow::Result<()> {
 async fn build_rocket(
     settings: &Settings,
     pool: PgPool,
-    pipeline: Arc<IngestionPipeline>,
-    registry: Arc<AdapterRegistry>,
 ) -> Rocket<Build> {
     rocket::build()
         .manage(pool)
         .manage(settings.jwt.clone())
         .manage(settings.mqtt.clone())
-        .manage(registry)
-        .manage(pipeline)
         .attach(Cors)
         .mount("/", remipedia::api::routes::health::routes())
         .mount("/api/v1", routes())
         .mount("/", swagger_ui())
+}
+
+/// 初始化并启动所有Ingest模块
+async fn init_ingest_modules(pool: &PgPool, settings: &Settings) -> anyhow::Result<()> {
+    let mut registry = ModuleRegistry::new();
+
+    // 注册床垫TCP模块
+    registry.register(Box::new(mattress::MattressModule::new(
+        mattress::MattressConfig {
+            bind_addr: format!("0.0.0.0:{}", settings.tcp.port).parse()?,
+            ..Default::default()
+        }
+    )));
+    info!("📡 注册床垫TCP模块");
+
+    // 注册视觉识别MQTT模块
+    if settings.mqtt.enabled {
+        registry.register(Box::new(vision::VisionModule::new(
+            vision::VisionConfig {
+                mqtt_broker: settings.mqtt.broker.clone(),
+                mqtt_port: settings.mqtt.port,
+                mqtt_topic: "device/vision/+/detect".to_string(),
+                client_id: format!("remipedia_vision_{}", uuid::Uuid::new_v4()),
+                ..Default::default()
+            }
+        )));
+        info!("📡 注册视觉识别MQTT模块");
+
+        // 注册IMU传感器MQTT模块
+        registry.register(Box::new(imu::ImuModule::new(
+            imu::ImuConfig {
+                mqtt_broker: settings.mqtt.broker.clone(),
+                mqtt_port: settings.mqtt.port,
+                mqtt_topic: "device/imu/+/data".to_string(),
+                client_id: format!("remipedia_imu_{}", uuid::Uuid::new_v4()),
+                ..Default::default()
+            }
+        )));
+        info!("📡 注册IMU传感器MQTT模块");
+    }
+
+    // 启动所有模块
+    registry.start_all(pool).await
+        .map_err(|e| anyhow::anyhow!("启动Ingest模块失败: {}", e))?;
+
+    info!("✅ 所有Ingest模块已启动");
+    Ok(())
 }
 
 #[tokio::main]
@@ -146,108 +186,11 @@ async fn main() -> anyhow::Result<()> {
     run_migrations(&pool).await?;
     init_admin(&pool).await?;
 
-    // 创建新的 IngestionPipeline
-    let config = PipelineConfig {
-        queue_size: 50,
-        batch_size: 10,
-        auto_register: true,
-        max_states: 10000,
-        state_idle_timeout_secs: 1800,
-    };
-
-    let mut adapter_registry = AdapterRegistry::new();
-    adapter_registry.register(Box::new(
-        remipedia::ingest::adapters::mattress::MattressAdapterV2::new(),
-    ));
-    adapter_registry.register(Box::new(
-        remipedia::ingest::adapters::ForwardAdapter::from_json(
-            remipedia::ingest::adapter::DeviceType::HeartRateMonitor,
-        ),
-    ));
-    adapter_registry.register(Box::new(
-        remipedia::ingest::adapters::ForwardAdapter::from_json(
-            remipedia::ingest::adapter::DeviceType::BloodPressureMonitor,
-        ),
-    ));
-    adapter_registry.register(Box::new(
-        remipedia::ingest::adapters::ForwardAdapter::from_json(
-            remipedia::ingest::adapter::DeviceType::GlucoseMeter,
-        ),
-    ));
-    adapter_registry.register(Box::new(
-        remipedia::ingest::adapters::ForwardAdapter::from_json(
-            remipedia::ingest::adapter::DeviceType::FallDetector,
-        ),
-    ));
-
-    let adapter_registry = Arc::new(adapter_registry);
-    let pipeline = Arc::new(IngestionPipeline::new(
-        &pool,
-        adapter_registry.clone(),
-        config,
-    ));
-
-    info!("📡 数据接入管道初始化完成（队列大小: 50）");
-
-    // 启动 Transport 层
-    {
-        // TCP Transport
-        if settings.tcp.enabled {
-            let pipeline_clone = pipeline.clone();
-            let tcp_bind: std::net::SocketAddr =
-                format!("0.0.0.0:{}", settings.tcp.port)
-                    .parse()
-                    .map_err(|_| anyhow::anyhow!("无效的TCP绑定地址"))?;
-            let tcp_transport = TcpTransportV2::new(tcp_bind);
-
-            tokio::spawn(async move {
-                if let Err(e) = tcp_transport.start(pipeline_clone).await {
-                    log::error!("TCP Transport 错误: {}", e);
-                }
-            });
-            info!("📡 TCP Transport 启动: {}", settings.tcp.port);
-        }
-
-        // MQTT Transport
-        if settings.mqtt.enabled {
-            let mqtt_cfg = settings.mqtt.clone();
-            let pipeline_clone = pipeline.clone();
-            let broker = mqtt_cfg.broker.clone();
-            let port = mqtt_cfg.port;
-
-            tokio::spawn(async move {
-                let mqtt_transport = MqttTransportV2::new(
-                    mqtt_cfg.broker,
-                    mqtt_cfg.port,
-                    mqtt_cfg.client_id,
-                    mqtt_cfg.topic_prefix,
-                );
-                if let Err(e) = mqtt_transport.start(pipeline_clone).await {
-                    log::error!("MQTT Transport 错误: {}", e);
-                }
-            });
-            info!("📡 MQTT Transport 启动: {}:{}", broker, port);
-        }
-
-        // WebSocket Transport
-        if settings.websocket.enabled {
-            let ws_bind: std::net::SocketAddr = format!("0.0.0.0:{}", settings.websocket.port)
-                .parse()
-                .map_err(|_| anyhow::anyhow!("无效的WebSocket绑定地址"))?;
-            let pipeline_clone = pipeline.clone();
-
-            tokio::spawn(async move {
-                let ws_transport = WebSocketTransportV2::new(ws_bind);
-                if let Err(e) = ws_transport.start(pipeline_clone).await {
-                    log::error!("WebSocket Transport 错误: {}", e);
-                }
-            });
-            info!("📡 WebSocket Transport 启动: {}", settings.websocket.port);
-        }
-    }
+    // 启动Ingest模块
+    init_ingest_modules(&pool, &settings).await?;
 
     // 启动 HTTP 服务器
-    let rocket = build_rocket(&settings, pool, pipeline, adapter_registry).await;
+    let rocket = build_rocket(&settings, pool).await;
     info!(
         "🌐 HTTP 服务器启动于 {}:{}",
         settings.server.host, settings.server.port

@@ -1,108 +1,91 @@
 //! 设备管理 API - V2架构适配版
 //!
-//! 注意：新架构使用StateManager替代了DeviceManager
+//! 注意：新架构使用独立模块，此文件保留用于查询已注册的设备类型
 
 use rocket::serde::json::Json;
-use rocket::State;
-use rocket::{get, post};
-use std::sync::Arc;
+use rocket::{get, State};
+use sqlx::PgPool;
+use utoipa::ToSchema;
 
-use crate::ingest::AdapterRegistry;
-use crate::ingest::IngestionPipeline;
+use crate::repository::DeviceRepository;
 
-#[derive(rocket::serde::Serialize)]
+#[derive(rocket::serde::Serialize, ToSchema)]
 pub struct DeviceTypeInfo {
     pub device_type: String,
     pub display_name: String,
-    pub protocol_version: String,
-    pub supports_events: bool,
+    pub description: String,
 }
 
-#[derive(rocket::serde::Serialize)]
-pub struct DeviceSessionDetail {
-    pub serial_number: String,
-    pub device_type: String,
-    pub last_seen: String,
-}
-
-#[derive(rocket::serde::Serialize)]
+#[derive(rocket::serde::Serialize, ToSchema)]
 pub struct DeviceSystemStatus {
     pub supported_types: Vec<DeviceTypeInfo>,
-    pub total_states: usize,
-    pub pipeline_queue_size: usize,
+    pub total_devices: i64,
     pub message: String,
 }
 
+/// 获取支持的设备类型列表
+#[utoipa::path(
+    get,
+    path = "/admin/devices/types",
+    tag = "device_manage",
+    responses(
+        (status = 200, description = "设备类型列表", body = Vec<DeviceTypeInfo>),
+    )
+)]
 #[get("/admin/devices/types")]
-pub async fn list_device_types(
-    registry: &State<Arc<AdapterRegistry>>,
-) -> Json<Vec<DeviceTypeInfo>> {
-    let types: Vec<DeviceTypeInfo> = registry
-        .list()
-        .into_iter()
-        .map(|m| DeviceTypeInfo {
-            device_type: m.device_type.to_string(),
-            display_name: m.display_name.to_string(),
-            protocol_version: m.protocol_version.to_string(),
-            supports_events: m.supports_events,
-        })
-        .collect();
-
+pub async fn list_device_types() -> Json<Vec<DeviceTypeInfo>> {
+    // 新架构下的固定设备类型列表
+    let types = vec![
+        DeviceTypeInfo {
+            device_type: "smart_mattress".to_string(),
+            display_name: "智能床垫".to_string(),
+            description: "TCP协议，Msgpack格式，支持心率/呼吸/离床检测".to_string(),
+        },
+        DeviceTypeInfo {
+            device_type: "vision_camera".to_string(),
+            display_name: "视觉识别摄像头".to_string(),
+            description: "MQTT协议，JSON格式，支持跌倒/徘徊检测".to_string(),
+        },
+        DeviceTypeInfo {
+            device_type: "imu_sensor".to_string(),
+            display_name: "IMU传感器".to_string(),
+            description: "MQTT协议，JSON格式，支持跌倒检测".to_string(),
+        },
+    ];
+    
     Json(types)
 }
 
-#[get("/admin/devices/sessions")]
-pub async fn list_device_sessions() -> Json<Vec<DeviceSessionDetail>> {
-    // V2架构：状态管理在内部，API层不直接访问
-    // 返回空列表，实际设备状态通过其他监控手段查看
-    Json(vec![])
-}
-
+/// 获取设备系统状态
+#[utoipa::path(
+    get,
+    path = "/admin/devices/status",
+    tag = "device_manage",
+    responses(
+        (status = 200, description = "系统状态", body = DeviceSystemStatus),
+    )
+)]
 #[get("/admin/devices/status")]
 pub async fn get_device_system_status(
-    registry: &State<Arc<AdapterRegistry>>,
-    pipeline: &State<Arc<IngestionPipeline>>,
+    pool: &State<PgPool>,
 ) -> Json<DeviceSystemStatus> {
-    let supported_types: Vec<DeviceTypeInfo> = registry
-        .list()
-        .into_iter()
-        .map(|m| DeviceTypeInfo {
-            device_type: m.device_type.to_string(),
-            display_name: m.display_name.to_string(),
-            protocol_version: m.protocol_version.to_string(),
-            supports_events: m.supports_events,
-        })
-        .collect();
-
-    Json(DeviceSystemStatus {
-        supported_types,
-        total_states: 0, // V2架构：状态管理在内部
-        pipeline_queue_size: pipeline.queue_size(),
-        message: "V2架构：设备状态管理在接入层内部".to_string(),
-    })
-}
-
-#[post("/admin/devices/sessions/cleanup")]
-pub async fn cleanup_idle_sessions() -> Json<CleanupResult> {
-    // V2架构：空闲清理由StateManager自动处理
-    // 清理逻辑在background task中自动执行
-    Json(CleanupResult {
-        cleaned_count: 0,
-        message: "V2架构：空闲状态自动清理".to_string(),
-    })
-}
-
-#[derive(rocket::serde::Serialize)]
-pub struct CleanupResult {
-    pub cleaned_count: usize,
-    pub message: String,
+    let device_repo = DeviceRepository::new(pool);
+    
+    // 获取设备总数
+    let total_devices = match device_repo.count_all().await {
+        Ok(count) => count,
+        Err(_) => 0,
+    };
+    
+    let status = DeviceSystemStatus {
+        supported_types: list_device_types().await.into_inner(),
+        total_devices,
+        message: "新架构：独立模块运行中".to_string(),
+    };
+    
+    Json(status)
 }
 
 pub fn routes() -> Vec<rocket::Route> {
-    rocket::routes![
-        list_device_types,
-        list_device_sessions,
-        get_device_system_status,
-        cleanup_idle_sessions,
-    ]
+    rocket::routes![list_device_types, get_device_system_status]
 }

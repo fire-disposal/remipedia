@@ -4,7 +4,6 @@ use uuid::Uuid;
 
 use crate::core::entity::{RawDataQuery, RawDataRecord, RawIngestStatus};
 use crate::errors::{AppError, AppResult};
-use crate::ingest::DataPacket;
 
 pub struct RawDataRepository<'a> {
     pool: &'a PgPool,
@@ -13,34 +12,6 @@ pub struct RawDataRepository<'a> {
 impl<'a> RawDataRepository<'a> {
     pub fn new(pool: &'a PgPool) -> Self {
         Self { pool }
-    }
-
-    pub async fn archive_received(&self, packet: &DataPacket) -> AppResult<Uuid> {
-        let metadata = serde_json::json!({
-            "source": packet.metadata.source,
-        });
-
-        let raw_payload_text = std::str::from_utf8(&packet.raw).ok().map(|s| s.to_string());
-
-        let result: (Uuid,) = sqlx::query_as(
-            r#"INSERT INTO ingest_raw_data (
-                source, serial_number, device_type, remote_addr,
-                metadata, raw_payload, raw_payload_text, status, received_at
-            ) VALUES ($1, $2, $3, $4, $5, $6, $7, 'stored', NOW())
-            RETURNING id"#,
-        )
-        .bind(&packet.metadata.source)
-        .bind(&packet.metadata.serial_number)
-        .bind(&packet.metadata.device_type)
-        .bind(&packet.metadata.remote_addr)
-        .bind(metadata)
-        .bind(&packet.raw)
-        .bind(raw_payload_text)
-        .fetch_one(self.pool)
-        .await
-        .map_err(AppError::DatabaseError)?;
-
-        Ok(result.0)
     }
 
     pub async fn mark_status(
@@ -142,5 +113,32 @@ impl<'a> RawDataRepository<'a> {
         .map_err(AppError::DatabaseError)?;
 
         Ok(record)
+    }
+
+    /// 简化版归档方法（供独立模块使用）
+    pub async fn archive_raw(
+        &self,
+        source: &str,
+        payload: &[u8],
+        remote_addr: String,
+    ) -> AppResult<Uuid> {
+        let raw_payload_text = std::str::from_utf8(payload).ok().map(|s| s.to_string());
+
+        let result: (Uuid,) = sqlx::query_as(
+            r#"INSERT INTO ingest_raw_data (
+                source, serial_number, device_type, remote_addr,
+                metadata, raw_payload, raw_payload_text, status, received_at
+            ) VALUES ($1, NULL, NULL, $2, '{}'::jsonb, $3, $4, 'stored', NOW())
+            RETURNING id"#,
+        )
+        .bind(source)
+        .bind(remote_addr)
+        .bind(payload)
+        .bind(raw_payload_text)
+        .fetch_one(self.pool)
+        .await
+        .map_err(AppError::DatabaseError)?;
+
+        Ok(result.0)
     }
 }

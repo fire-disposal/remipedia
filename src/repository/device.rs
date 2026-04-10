@@ -158,6 +158,15 @@ impl<'a> DeviceRepository<'a> {
         Ok(result.0)
     }
 
+    pub async fn count_all(&self) -> AppResult<i64> {
+        let result: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM device")
+            .fetch_one(self.pool)
+            .await
+            .map_err(AppError::DatabaseError)?;
+
+        Ok(result.0)
+    }
+
     pub async fn delete(&self, id: &Uuid) -> AppResult<()> {
         let result = sqlx::query(r#"DELETE FROM device WHERE id = $1"#)
             .bind(id)

@@ -1,6 +1,6 @@
 #[cfg(test)]
 mod tests {
-    use crate::core::entity::{NewRole, Permission, PermissionKey, Role, UpdateRole};
+    use crate::core::entity::{NewRole, PermissionKey, Role, UpdateRole};
     use chrono::Utc;
     use uuid::Uuid;
 
@@ -52,25 +52,6 @@ mod tests {
 
         assert!(partial_update.name.is_none());
         assert!(partial_update.description.is_some());
-    }
-
-    /// 测试权限数据结构
-    #[test]
-    fn test_permission() {
-        let permission = Permission {
-            id: Uuid::now_v7(),
-            resource: "patient".to_string(),
-            action: "read".to_string(),
-            description: Some("Read patient data".to_string()),
-            created_at: Utc::now(),
-        };
-
-        assert_eq!(permission.resource, "patient");
-        assert_eq!(permission.action, "read");
-        assert_eq!(
-            permission.description,
-            Some("Read patient data".to_string())
-        );
     }
 
     /// 测试权限键（PermissionKey）

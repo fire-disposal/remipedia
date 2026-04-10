@@ -334,102 +334,6 @@ pub async fn list_modules(
     Ok(Json(response))
 }
 
-#[allow(deprecated)]
-/// 获取角色权限（已废弃，请使用 get_role_modules）
-#[utoipa::path(
-    get,
-    path = "/admin/roles/{id}/permissions",
-    tag = "admin",
-    security(
-        ("bearer_auth" = [])
-    ),
-    params(
-        ("id" = String, Path, description = "角色ID")
-    ),
-    responses(
-        (status = 200, description = "获取成功", body = RoleModuleResponse),
-        (status = 404, description = "角色不存在"),
-        (status = 403, description = "无权限"),
-    )
-)]
-#[get("/admin/roles/<id>/permissions")]
-pub async fn get_role_permissions(
-    pool: &State<PgPool>,
-    _guard: SystemRoleGuard,
-    id: &str,
-) -> AppResult<Json<RoleModuleResponse>> {
-    let id = Uuid::parse_str(id).map_err(|_| AppError::ValidationError("无效的角色ID".into()))?;
-    let service = AdminService::new(pool);
-    let response = service.get_role_modules(&id).await?;
-    Ok(Json(response))
-}
-
-#[allow(deprecated)]
-/// 为角色分配权限（已废弃，请使用 assign_module）
-#[utoipa::path(
-    post,
-    path = "/admin/roles/{id}/permissions",
-    tag = "admin",
-    security(
-        ("bearer_auth" = [])
-    ),
-    params(
-        ("id" = String, Path, description = "角色ID")
-    ),
-    request_body = AssignModuleRequest,
-    responses(
-        (status = 204, description = "分配成功"),
-        (status = 404, description = "角色或模块不存在"),
-        (status = 403, description = "无权限"),
-    )
-)]
-#[post("/admin/roles/<id>/permissions", data = "<req>")]
-pub async fn assign_permission(
-    pool: &State<PgPool>,
-    _guard: SystemRoleGuard,
-    id: &str,
-    req: Json<AssignModuleRequest>,
-) -> AppResult<Status> {
-    let id = Uuid::parse_str(id).map_err(|_| AppError::ValidationError("无效的角色ID".into()))?;
-    let service = AdminService::new(pool);
-    service.assign_module(&id, &req.module_id).await?;
-    Ok(Status::NoContent)
-}
-
-#[allow(deprecated)]
-/// 移除角色权限（已废弃，请使用 revoke_module）
-#[utoipa::path(
-    delete,
-    path = "/admin/roles/{id}/permissions/{permission_id}",
-    tag = "admin",
-    security(
-        ("bearer_auth" = [])
-    ),
-    params(
-        ("id" = String, Path, description = "角色ID"),
-        ("permission_id" = String, Path, description = "模块ID")
-    ),
-    responses(
-        (status = 204, description = "移除成功"),
-        (status = 404, description = "角色不存在"),
-        (status = 403, description = "无权限"),
-    )
-)]
-#[delete("/admin/roles/<id>/permissions/<permission_id>")]
-pub async fn revoke_permission(
-    pool: &State<PgPool>,
-    _guard: SystemRoleGuard,
-    id: &str,
-    permission_id: &str,
-) -> AppResult<Status> {
-    let id = Uuid::parse_str(id).map_err(|_| AppError::ValidationError("无效的角色ID".into()))?;
-    let module_id = Uuid::parse_str(permission_id)
-        .map_err(|_| AppError::ValidationError("无效的模块ID".into()))?;
-    let service = AdminService::new(pool);
-    service.revoke_module(&id, &module_id).await?;
-    Ok(Status::NoContent)
-}
-
 /// 查询审计日志
 #[utoipa::path(
     get,
@@ -534,10 +438,6 @@ pub fn routes() -> Vec<rocket::Route> {
         list_modules,
         list_audit_logs,
         get_audit_log,
-        // Deprecated routes (backward compatibility)
-        get_role_permissions,
-        assign_permission,
-        revoke_permission,
     ]
 }
 

@@ -222,27 +222,3 @@ impl ExplicitModuleGuard {
         user.accessible_modules.contains(&module.as_str().to_string())
     }
 }
-
-// 保留旧守卫以兼容（标记为 deprecated）
-/// 超级管理员守卫（已废弃，请使用 SystemRoleGuard）
-#[deprecated(since = "0.2.0", note = "请使用 SystemRoleGuard 替代")]
-pub type SuperAdminGuard = SystemRoleGuard;
-
-/// 权限守卫（已废弃，请使用 ModuleGuard）
-#[deprecated(since = "0.2.0", note = "请使用 ModuleGuard 替代")]
-pub type PermissionGuard = ModuleGuard;
-
-/// 自定义权限守卫（已废弃）
-#[deprecated(since = "0.2.0", note = "功能已移除")]
-#[derive(Clone)]
-pub struct RequirePermission {
-    pub resource: &'static str,
-    pub action: &'static str,
-}
-
-#[allow(deprecated)]
-impl RequirePermission {
-    pub const fn new(resource: &'static str, action: &'static str) -> Self {
-        Self { resource, action }
-    }
-}

@@ -80,39 +80,6 @@ pub struct SetRoleModulesRequest {
     pub module_ids: Vec<Uuid>,
 }
 
-/// 权限响应（已废弃，保留向后兼容）
-#[deprecated(since = "0.2.0", note = "请使用 ModuleResponse 替代")]
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
-pub struct PermissionResponse {
-    pub id: Uuid,
-    pub resource: String,
-    pub action: String,
-    pub description: Option<String>,
-    pub created_at: DateTime<Utc>,
-}
-
-/// 权限列表响应（已废弃，保留向后兼容）
-#[deprecated(since = "0.2.0", note = "请使用 ModuleListResponse 替代")]
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
-pub struct PermissionListResponse {
-    pub permissions: Vec<PermissionResponse>,
-}
-
-/// 角色权限响应（已废弃，保留向后兼容）
-#[deprecated(since = "0.2.0", note = "请使用 RoleModuleResponse 替代")]
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
-pub struct RolePermissionResponse {
-    pub role_id: Uuid,
-    pub permissions: Vec<PermissionResponse>,
-}
-
-/// 分配权限请求（已废弃，保留向后兼容）
-#[deprecated(since = "0.2.0", note = "请使用 AssignModuleRequest 替代")]
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
-pub struct AssignPermissionRequest {
-    pub permission_id: Uuid,
-}
-
 /// 审计日志响应
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct AuditLogResponse {

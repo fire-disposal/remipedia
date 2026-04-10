@@ -125,4 +125,22 @@ impl<'a> RawDataRepository<'a> {
 
         Ok(result.0)
     }
+
+    /// 根据ID获取单条原始数据记录
+    pub async fn get_by_id(&self, id: Uuid) -> AppResult<Option<RawDataRecord>> {
+        let record = sqlx::query_as::<_, RawDataRecord>(
+            r#"SELECT
+                id, source, serial_number, device_type, remote_addr,
+                metadata, raw_payload, raw_payload_text, status, status_message,
+                received_at, processed_at, created_at, updated_at
+            FROM ingest_raw_data
+            WHERE id = $1"#,
+        )
+        .bind(id)
+        .fetch_optional(self.pool)
+        .await
+        .map_err(AppError::DatabaseError)?;
+
+        Ok(record)
+    }
 }

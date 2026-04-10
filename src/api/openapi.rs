@@ -59,6 +59,7 @@ use utoipa_swagger_ui::SwaggerUi;
         // Ingest
         crate::api::routes::ingest::mqtt_protocol_doc,
         crate::api::routes::ingest::query_raw_data,
+        crate::api::routes::ingest::get_raw_data_detail,
     ),
     components(
         schemas(
@@ -108,6 +109,7 @@ use utoipa_swagger_ui::SwaggerUi;
             crate::dto::response::DataQueryResponse,
             crate::dto::response::RawDataRecordResponse,
             crate::dto::response::RawDataQueryResponse,
+            crate::dto::response::RawDataDetailResponse,
             crate::dto::response::Pagination,
             // Admin - Role & Module Response DTOs
             crate::dto::response::RoleResponse,

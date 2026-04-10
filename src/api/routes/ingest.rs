@@ -1,15 +1,12 @@
 use rocket::serde::json::Json;
 use rocket::{get, State};
-use rocket::http::{ContentType, Header};
-use rocket::response::stream::ByteStream;
-use sqlx::PgPool;
 use utoipa::ToSchema;
-use std::io::Cursor;
+use uuid::Uuid;
 
 use crate::api::guards::AuthenticatedUser;
 use crate::config::MqttConfig;
 use crate::dto::request::RawDataQuery;
-use crate::dto::response::RawDataQueryResponse;
+use crate::dto::response::{RawDataQueryResponse, RawDataDetailResponse};
 use crate::errors::AppResult;
 use crate::service::IngestRawService;
 
@@ -116,7 +113,7 @@ pub async fn mqtt_protocol_doc(mqtt_config: &State<MqttConfig>) -> Json<MqttProt
 )]
 #[get("/ingest/raw?<source>&<serial_number>&<device_type>&<status>&<start_time>&<end_time>&<page>&<page_size>")]
 pub async fn query_raw_data(
-    pool: &State<PgPool>,
+    pool: &State<sqlx::PgPool>,
     _user: AuthenticatedUser,
     source: Option<String>,
     serial_number: Option<String>,
@@ -175,7 +172,7 @@ pub async fn query_raw_data(
 )]
 #[get("/ingest/raw/export?<source>&<serial_number>&<device_type>&<status>&<start_time>&<end_time>&<format>")]
 pub async fn export_raw_data(
-    pool: &State<PgPool>,
+    pool: &State<sqlx::PgPool>,
     _user: AuthenticatedUser,
     source: Option<String>,
     serial_number: Option<String>,
@@ -220,6 +217,37 @@ pub async fn export_raw_data(
     Ok(data)
 }
 
+/// 获取单条原始数据详情（包含完整原始字节）
+#[utoipa::path(
+    get,
+    path = "/ingest/raw/{id}",
+    tag = "ingest",
+    security(
+        ("bearer_auth" = [])
+    ),
+    params(
+        ("id" = String, Path, description = "原始数据记录ID"),
+    ),
+    responses(
+        (status = 200, description = "查询成功", body = RawDataDetailResponse),
+        (status = 404, description = "记录不存在"),
+    )
+)]
+#[get("/ingest/raw/<id>")]
+pub async fn get_raw_data_detail(
+    pool: &State<sqlx::PgPool>,
+    _user: AuthenticatedUser,
+    id: &str,
+) -> AppResult<Json<RawDataDetailResponse>> {
+    let service = IngestRawService::new(pool);
+
+    let uuid = Uuid::parse_str(id)
+        .map_err(|e| crate::errors::AppError::ValidationError(format!("无效的ID格式: {}", e)))?;
+
+    let detail = service.get_detail(uuid).await?;
+    Ok(Json(detail))
+}
+
 pub fn routes() -> Vec<rocket::Route> {
-    rocket::routes![mqtt_protocol_doc, query_raw_data, export_raw_data]
+    rocket::routes![mqtt_protocol_doc, query_raw_data, export_raw_data, get_raw_data_detail]
 }

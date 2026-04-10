@@ -124,6 +124,43 @@ pub struct RawDataRecordResponse {
     pub updated_at: DateTime<Utc>,
 }
 
+/// Ingest 原始数据详情（包含完整原始字节）
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct RawDataDetailResponse {
+    /// 归档记录ID
+    pub id: Uuid,
+    /// 数据来源
+    pub source: String,
+    /// 设备序列号
+    pub serial_number: Option<String>,
+    /// 设备类型
+    pub device_type: Option<String>,
+    /// 远程地址
+    pub remote_addr: Option<String>,
+    /// 元数据
+    pub metadata: serde_json::Value,
+    /// 状态
+    pub status: String,
+    /// 状态说明
+    pub status_message: Option<String>,
+    /// 原始载荷大小（字节）
+    pub payload_size: usize,
+    /// 原始载荷（Base64编码）
+    pub raw_payload_base64: String,
+    /// 原始载荷（UTF-8文本，如果可解码）
+    pub raw_payload_text: Option<String>,
+    /// 原始载荷（十六进制表示，用于二进制诊断）
+    pub raw_payload_hex: String,
+    /// 接收时间
+    pub received_at: DateTime<Utc>,
+    /// 处理完成时间
+    pub processed_at: Option<DateTime<Utc>>,
+    /// 创建时间
+    pub created_at: DateTime<Utc>,
+    /// 更新时间
+    pub updated_at: DateTime<Utc>,
+}
+
 /// Ingest 原始数据查询响应
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct RawDataQueryResponse {

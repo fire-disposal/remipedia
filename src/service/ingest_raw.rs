@@ -1,3 +1,4 @@
+use super::ensure_found;
 use crate::core::entity::{RawDataQuery as CoreRawDataQuery, RawDataRecord, RawIngestStatus};
 use crate::dto::request::RawDataQuery;
 use crate::dto::response::{Pagination, RawDataQueryResponse, RawDataRecordResponse, RawDataDetailResponse};
@@ -42,8 +43,11 @@ impl<'a> IngestRawService<'a> {
 
     /// 获取单条原始数据详情（包含完整原始字节）
     pub async fn get_detail(&self, id: Uuid) -> AppResult<RawDataDetailResponse> {
-        let record = self.raw_repo.get_by_id(id).await?
-            .ok_or_else(|| AppError::NotFound(format!("原始数据记录不存在: {}", id)))?;
+        let record = ensure_found(
+            self.raw_repo.get_by_id(id).await?,
+            "RawDataRecord",
+            &id,
+        )?;
 
         Ok(RawDataDetailResponse::from(record))
     }

@@ -50,30 +50,35 @@ impl From<std::io::Error> for AppError {
 
 pub type AppResult<T> = Result<T, AppError>;
 
+impl AppError {
+    /// 将错误变体映射为 (HTTP 状态码, 客户端可见错误消息)
+    fn to_response_parts(&self) -> (Status, String) {
+        match self {
+            Self::NotFound(msg) => (Status::NotFound, msg.clone()),
+            Self::ValidationError(msg) => (Status::BadRequest, msg.clone()),
+            Self::Unauthorized(msg) => (Status::Unauthorized, msg.clone()),
+            Self::Forbidden => (Status::Forbidden, self.to_string()),
+            Self::Conflict(msg) => (Status::Conflict, msg.clone()),
+            Self::DatabaseError(e) => {
+                tracing::error!("数据库错误: {:?}", e);
+                (Status::InternalServerError, "内部服务错误".into())
+            }
+            Self::InternalError(msg) => {
+                tracing::error!("内部错误: {}", msg);
+                (Status::InternalServerError, "内部服务错误".into())
+            }
+        }
+    }
+}
+
 impl<'r> Responder<'r, 'r> for AppError {
     fn respond_to(self, req: &'r Request<'_>) -> response::Result<'r> {
-        let (status, error_msg) = match &self {
-            Self::NotFound(_) => (Status::NotFound, self.to_string()),
-            Self::ValidationError(_) => (Status::BadRequest, self.to_string()),
-            Self::Unauthorized(_) => (Status::Unauthorized, self.to_string()),
-            Self::Forbidden => (Status::Forbidden, self.to_string()),
-            Self::Conflict(_) => (Status::Conflict, self.to_string()),
-            Self::DatabaseError(e) => {
-                log::error!("数据库错误: {:?}", e);
-                (Status::InternalServerError, "内部服务错误".into())
-            }
-            Self::InternalError(e) => {
-                log::error!("内部错误: {}", e);
-                (Status::InternalServerError, "内部服务错误".into())
-            }
-        };
-
+        let (status, error_msg) = self.to_response_parts();
         let body = json!({
             "success": false,
             "error": error_msg,
             "code": status.code,
         });
-
         response::Response::build_from(body.respond_to(req)?)
             .status(status)
             .ok()

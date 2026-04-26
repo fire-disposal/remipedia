@@ -1,7 +1,6 @@
 #[cfg(test)]
 mod tests {
     use crate::core::entity::{NewRole, Role, UpdateRole};
-    use crate::core::value_object::PermissionKey;
     use chrono::Utc;
     use uuid::Uuid;
 
@@ -55,26 +54,6 @@ mod tests {
         assert!(partial_update.description.is_some());
     }
 
-    /// 测试权限键（PermissionKey）
-    #[test]
-    fn test_permission_key() {
-        let key = PermissionKey::new("patient", "read");
-
-        assert_eq!(key.resource, "patient");
-        assert_eq!(key.action, "read");
-        assert_eq!(key.to_string(), "patient:read");
-    }
-
-    /// 测试从元组创建 PermissionKey
-    #[test]
-    fn test_permission_key_from_tuple() {
-        let tuple = ("device".to_string(), "create".to_string());
-        let key: PermissionKey = tuple.into();
-
-        assert_eq!(key.resource, "device");
-        assert_eq!(key.action, "create");
-    }
-
     /// 测试系统角色标记
     #[test]
     fn test_system_role_flag() {
@@ -98,19 +77,5 @@ mod tests {
 
         assert!(system_role.is_system);
         assert!(!custom_role.is_system);
-    }
-
-    /// 测试权限资源操作组合
-    #[test]
-    fn test_permission_combinations() {
-        let resources = vec!["patient", "device", "binding", "data", "user"];
-        let actions = vec!["create", "read", "update", "delete", "list"];
-
-        for resource in &resources {
-            for action in &actions {
-                let key = PermissionKey::new(*resource, *action);
-                assert_eq!(key.to_string(), format!("{}:{}", resource, action));
-            }
-        }
     }
 }

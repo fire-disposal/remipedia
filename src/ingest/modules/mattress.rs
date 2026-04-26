@@ -14,9 +14,11 @@
 //! - CRC8: 对 `magic + len + payload` 做校验 (1字节)
 //! - 载荷: Msgpack 编码的床垫数据 (N字节)
 
-use crate::core::entity::{DataPoint, DataCategory, Severity};
+use crate::ingest::types::{DataCategory, DataPoint, Severity};
 use crate::errors::AppResult;
-use crate::repository::{DataRepository, RawDataRepository};
+use crate::ingest::modules::store_data_points;
+use crate::repository::RawDataRepository;
+use crate::service::DataService;
 use sqlx::PgPool;
 use std::net::SocketAddr;
 use tokio::io::AsyncReadExt;
@@ -131,7 +133,7 @@ async fn handle_connection(
 ) -> AppResult<()> {
     log::info!("床垫设备连接: {}", addr);
     
-    let data_repo = DataRepository::new(pool);
+    let data_service = DataService::new(pool.clone());
     let raw_repo = RawDataRepository::new(pool);
     
     let mut buffer = Vec::with_capacity(4096);
@@ -164,7 +166,7 @@ async fn handle_connection(
                     addr,
                     MAX_CONSECUTIVE_FRAME_ERRORS
                 );
-                return Err(crate::errors::AppError::InternalError(
+                return Err(crate::errors::AppError::internal(
                     format!("连续帧错误过多 {}", addr)
                 ));
             }
@@ -181,7 +183,7 @@ async fn handle_connection(
                         Ok(packet) => {
                             // 首次连接时解析设备ID
                             if device_id.is_none() {
-                                device_id = resolve_or_create_device(pool, &packet.serial_number).await.ok();
+                                device_id = crate::ingest::modules::resolve_or_create_device(pool, &packet.serial_number, "smart_mattress", None).await.ok();
                             }
                             
                             // 处理数据
@@ -193,9 +195,9 @@ async fn handle_connection(
                                 );
                                 state = new_state;
                                 
-                                // 存储数据点
+                                // 通过 DataService 存储数据点
                                 if !points.is_empty() {
-                                    if let Err(e) = data_repo.insert_datapoints(&points).await {
+                                    if let Err(e) = store_data_points(&data_service, &points, dev_id).await {
                                         log::error!("存储床垫数据失败: {}", e);
                                     }
                                 }
@@ -265,7 +267,7 @@ fn extract_msgpack_frame(buffer: &mut Vec<u8>, max_size: usize) -> AppResult<Opt
 
     // 查找 magic 头，无法匹配则返回错误供上层恢复
     if buffer[0] != 0xAB || buffer[1] != 0xCD {
-        return Err(crate::errors::AppError::ValidationError(
+        return Err(crate::errors::AppError::validation(
             format!("无效的 magic 头: {:02X} {:02X}", buffer[0], buffer[1])
         ));
     }
@@ -274,7 +276,7 @@ fn extract_msgpack_frame(buffer: &mut Vec<u8>, max_size: usize) -> AppResult<Opt
 
     // 校验 payload_len 是否在合理范围 [1, max_size]
     if payload_len == 0 || payload_len > max_size {
-        return Err(crate::errors::AppError::ValidationError(
+        return Err(crate::errors::AppError::validation(
             format!("载荷长度 {} 不在有效范围 [1, {}]", payload_len, max_size)
         ));
     }
@@ -292,7 +294,7 @@ fn extract_msgpack_frame(buffer: &mut Vec<u8>, max_size: usize) -> AppResult<Opt
     let actual_crc = crc8(&crc_data);
 
     if actual_crc != expected_crc {
-        return Err(crate::errors::AppError::ValidationError(
+        return Err(crate::errors::AppError::validation(
             format!("CRC 校验失败: 期望 {:02X}, 实际 {:02X}", expected_crc, actual_crc)
         ));
     }
@@ -314,14 +316,14 @@ fn find_next_magic(buffer: &[u8]) -> Option<usize> {
 /// 此函数接收完整帧 (含头部), 提取 payload 做 msgpack 解码。
 fn parse_mattress_packet(frame: &[u8]) -> AppResult<MattressPacket> {
     if frame.len() < FRAME_HEADER_SIZE + 1 {
-        return Err(crate::errors::AppError::ValidationError(
+        return Err(crate::errors::AppError::validation(
             format!("数据包太短: {} 字节", frame.len())
         ));
     }
 
     let data = &frame[FRAME_HEADER_SIZE..]; // 跳过 5 字节头部
     let value: serde_json::Value = rmp_serde::from_slice(data)
-        .map_err(|e| crate::errors::AppError::ValidationError(format!("Msgpack解析失败: {}", e)))?;
+        .map_err(|e| crate::errors::AppError::validation(format!("Msgpack解析失败: {}", e)))?;
 
     Ok(MattressPacket {
         serial_number: extract_str(&value, &["sn", "serial_number"])?,
@@ -458,11 +460,6 @@ fn create_event(device_id: Uuid, event_type: &str, severity: Severity, message: 
     }
 }
 
-/// 解析或创建设备 (委托给共享实现)
-async fn resolve_or_create_device(pool: &PgPool, serial: &str) -> AppResult<Uuid> {
-    crate::ingest::modules::resolve_or_create_device(pool, serial, "smart_mattress", None).await
-}
-
 // 辅助函数
 fn extract_str(value: &serde_json::Value, keys: &[&str]) -> AppResult<String> {
     for key in keys {
@@ -470,7 +467,7 @@ fn extract_str(value: &serde_json::Value, keys: &[&str]) -> AppResult<String> {
             return Ok(v.to_string());
         }
     }
-    Err(crate::errors::AppError::ValidationError(
+    Err(crate::errors::AppError::validation(
         format!("缺少字段: {:?}", keys)
     ))
 }

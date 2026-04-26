@@ -22,7 +22,7 @@ impl<'a> DeviceRepository<'a> {
         .fetch_one(self.pool)
         .await
         .map_err(|e| match e {
-            sqlx::Error::RowNotFound => AppError::NotFound(format!("设备: {}", id)),
+            sqlx::Error::RowNotFound => AppError::not_found(format!("设备: {}", id)),
             other => AppError::DatabaseError(other),
         })
     }
@@ -75,7 +75,7 @@ impl<'a> DeviceRepository<'a> {
         .fetch_one(self.pool)
         .await
         .map_err(|e| match e {
-            sqlx::Error::RowNotFound => AppError::NotFound(format!("设备: {}", id)),
+            sqlx::Error::RowNotFound => AppError::not_found(format!("设备: {}", id)),
             other => AppError::DatabaseError(other),
         })
     }
@@ -102,7 +102,7 @@ impl<'a> DeviceRepository<'a> {
         .fetch_one(self.pool)
         .await
         .map_err(|e| match e {
-            sqlx::Error::RowNotFound => AppError::NotFound(format!("设备: {}", id)),
+            sqlx::Error::RowNotFound => AppError::not_found(format!("设备: {}", id)),
             other => AppError::DatabaseError(other),
         })
     }
@@ -175,7 +175,7 @@ impl<'a> DeviceRepository<'a> {
             .map_err(AppError::DatabaseError)?;
 
         if result.rows_affected() == 0 {
-            return Err(AppError::NotFound(format!("设备: {}", id)));
+            return Err(AppError::not_found(format!("设备: {}", id)));
         }
 
         Ok(())

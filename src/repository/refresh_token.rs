@@ -53,7 +53,7 @@ impl<'a> RefreshTokenRepository<'a> {
         .map_err(AppError::DatabaseError)?;
 
         if result.rows_affected() == 0 {
-            return Err(AppError::NotFound("刷新令牌不存在或已撤销".into()));
+            return Err(AppError::not_found("刷新令牌不存在或已撤销"));
         }
 
         Ok(())

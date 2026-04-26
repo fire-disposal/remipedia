@@ -44,12 +44,13 @@ impl<'a> RoleRepository<'a> {
     /// 创建角色
     pub async fn create(&self, new_role: &NewRole) -> AppResult<Role> {
         let role = sqlx::query_as::<_, Role>(
-            r#"INSERT INTO roles (name, description) 
-               VALUES ($1, $2) 
+            r#"INSERT INTO roles (name, description, data_scope)
+               VALUES ($1, $2, COALESCE($3, 'all'))
                RETURNING *"#,
         )
         .bind(&new_role.name)
         .bind(&new_role.description)
+        .bind(&new_role.data_scope)
         .fetch_one(self.pool)
         .await
         .map_err(AppError::DatabaseError)?;
@@ -59,15 +60,17 @@ impl<'a> RoleRepository<'a> {
     /// 更新角色
     pub async fn update(&self, id: &Uuid, update: &UpdateRole) -> AppResult<Role> {
         let role = sqlx::query_as::<_, Role>(
-            r#"UPDATE roles 
+            r#"UPDATE roles
                SET name = COALESCE($2, name),
-                   description = COALESCE($3, description)
+                   description = COALESCE($3, description),
+                   data_scope = COALESCE($4, data_scope)
                WHERE id = $1
                RETURNING *"#,
         )
         .bind(id)
         .bind(&update.name)
         .bind(&update.description)
+        .bind(&update.data_scope)
         .fetch_one(self.pool)
         .await
         .map_err(AppError::DatabaseError)?;
@@ -116,16 +119,31 @@ impl<'a> RoleRepository<'a> {
         Ok(result.map(|r| r.0).unwrap_or(false))
     }
 
-    /// 获取角色可访问的模块（含系统角色通配判断）
-    pub async fn get_accessible_modules(&self, role_id: &Uuid) -> AppResult<(bool, Vec<String>)> {
+    /// 获取角色可访问的模块（含系统角色通配判断）及数据范围
+    /// 返回 (is_system_role, modules, data_scope)
+    pub async fn get_accessible_modules(&self, role_id: &Uuid) -> AppResult<(bool, Vec<String>, String)> {
         let is_system = self.is_system_role(role_id).await?;
+        let data_scope = self.get_data_scope(role_id).await?;
 
         if is_system {
-            return Ok((true, vec!["*".to_string()]));
+            return Ok((true, vec!["*".to_string()], data_scope));
         }
 
         let module_codes = self.get_role_module_codes(role_id).await?;
-        Ok((false, module_codes))
+        Ok((false, module_codes, data_scope))
+    }
+
+    /// 获取角色的数据范围
+    pub async fn get_data_scope(&self, role_id: &Uuid) -> AppResult<String> {
+        let result: Option<(String,)> = sqlx::query_as(
+            r#"SELECT data_scope FROM roles WHERE id = $1"#
+        )
+        .bind(role_id)
+        .fetch_optional(self.pool)
+        .await
+        .map_err(AppError::DatabaseError)?;
+
+        Ok(result.map(|r| r.0).unwrap_or_else(|| "all".to_string()))
     }
 
     /// 为角色分配模块代码

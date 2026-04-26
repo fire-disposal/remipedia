@@ -210,7 +210,7 @@ pub async fn export_raw_data(
         "csv" => service.export_csv(&response.data)?,
         _ => {
             serde_json::to_vec_pretty(&response.data)
-                .map_err(|e| crate::errors::AppError::ValidationError(format!("JSON序列化失败: {}", e)))?
+                .map_err(|e| crate::errors::AppError::validation(format!("JSON序列化失败: {}", e)))?
         }
     };
 
@@ -242,7 +242,7 @@ pub async fn get_raw_data_detail(
     let service = IngestRawService::new(pool);
 
     let uuid = Uuid::parse_str(id)
-        .map_err(|e| crate::errors::AppError::ValidationError(format!("无效的ID格式: {}", e)))?;
+        .map_err(|e| crate::errors::AppError::validation(format!("无效的ID格式: {}", e)))?;
 
     let detail = service.get_detail(uuid).await?;
     Ok(Json(detail))

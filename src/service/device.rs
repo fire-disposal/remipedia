@@ -9,8 +9,11 @@ use crate::api::routes::device::DeviceStatsResponse;
 use crate::dto::response::{BindingInfo, DeviceListResponse, DeviceResponse, Pagination};
 use crate::errors::{AppError, AppResult};
 use crate::repository::{BindingRepository, DeviceRepository};
+use crate::service::log_audit_success;
 
 pub struct DeviceService<'a> {
+    pool: &'a PgPool,
+    actor_id: Option<Uuid>,
     device_repo: DeviceRepository<'a>,
     binding_repo: BindingRepository<'a>,
 }
@@ -18,17 +21,24 @@ pub struct DeviceService<'a> {
 impl<'a> DeviceService<'a> {
     pub fn new(pool: &'a PgPool) -> Self {
         Self {
+            pool,
+            actor_id: None,
             device_repo: DeviceRepository::new(pool),
             binding_repo: BindingRepository::new(pool),
         }
     }
 
+    /// 设置操作者 ID（审计日志用）
+    pub fn with_actor(mut self, actor_id: Option<Uuid>) -> Self {
+        self.actor_id = actor_id;
+        self
+    }
+
     /// 注册设备
     pub async fn register(&self, req: RegisterDeviceRequest) -> AppResult<DeviceResponse> {
         // 验证设备类型
-        DeviceType::from_str(&req.device_type).ok_or_else(|| {
-            AppError::ValidationError(format!("未知设备类型: {}", req.device_type))
-        })?;
+        DeviceType::from_str(&req.device_type)
+            .ok_or_else(|| AppError::validation(format!("未知设备类型: {}", req.device_type)))?;
 
         // 检查序列号是否已存在
         if self
@@ -36,7 +46,7 @@ impl<'a> DeviceService<'a> {
             .exists_by_serial(&req.serial_number)
             .await?
         {
-            return Err(AppError::ValidationError("设备序列号已存在".into()));
+            return Err(AppError::validation("设备序列号已存在"));
         }
 
         let device = self
@@ -55,6 +65,17 @@ impl<'a> DeviceService<'a> {
             device.id, device.serial_number
         );
 
+        // 记录审计日志
+        log_audit_success(
+            self.pool,
+            self.actor_id,
+            "REGISTER_DEVICE",
+            "Device",
+            Some(device.id.to_string()),
+            None,
+        )
+        .await?;
+
         Ok(device.into())
     }
 
@@ -72,7 +93,7 @@ impl<'a> DeviceService<'a> {
 
         // 验证设备类型
         let dev_type = DeviceType::from_str(device_type)
-            .ok_or_else(|| AppError::ValidationError(format!("未知设备类型: {}", device_type)))?;
+            .ok_or_else(|| AppError::validation(format!("未知设备类型: {}", device_type)))?;
 
         // 自动创建设备，处理并发插入导致的唯一约束冲突（serial_number 唯一）
         match self
@@ -144,6 +165,17 @@ impl<'a> DeviceService<'a> {
 
         info!("设备更新成功: device_id={}", id);
 
+        // 记录审计日志
+        log_audit_success(
+            self.pool,
+            self.actor_id,
+            "UPDATE_DEVICE",
+            "Device",
+            Some(id.to_string()),
+            None,
+        )
+        .await?;
+
         Ok(device.into())
     }
 
@@ -211,6 +243,18 @@ impl<'a> DeviceService<'a> {
     pub async fn delete(&self, id: &Uuid) -> AppResult<()> {
         self.device_repo.delete(id).await?;
         info!("设备删除成功: device_id={}", id);
+
+        // 记录审计日志
+        log_audit_success(
+            self.pool,
+            self.actor_id,
+            "DELETE_DEVICE",
+            "Device",
+            Some(id.to_string()),
+            None,
+        )
+        .await?;
+
         Ok(())
     }
 

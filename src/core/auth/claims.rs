@@ -2,7 +2,7 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-/// JWT Claims 结构（Module-Based）
+/// JWT Claims 结构（Module-Based + DataScope）
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Claims {
     /// 令牌签发者
@@ -25,6 +25,8 @@ pub struct Claims {
     pub is_system_role: bool,
     /// 可访问模块列表（空列表表示通配权限，由 is_system_role 控制）
     pub modules: Vec<String>,
+    /// 数据范围：all(全部), self(仅自己), department(科室)
+    pub data_scope: String,
     /// 令牌类型：access 或 refresh
     pub token_type: String,
 }
@@ -36,6 +38,7 @@ impl Claims {
         role_id: &Uuid,
         is_system_role: bool,
         modules: Vec<String>,
+        data_scope: &str,
         expires_at: DateTime<Utc>,
         issuer: &str,
     ) -> Self {
@@ -52,6 +55,7 @@ impl Claims {
             role_id: role_id.to_string(),
             is_system_role,
             modules,
+            data_scope: data_scope.to_string(),
             token_type: "access".to_string(),
         }
     }
@@ -70,6 +74,7 @@ impl Claims {
             role_id: String::new(), // refresh token 不需要角色
             is_system_role: false,
             modules: Vec::new(),
+            data_scope: String::new(),
             token_type: "refresh".to_string(),
         }
     }

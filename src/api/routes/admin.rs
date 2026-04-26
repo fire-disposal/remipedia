@@ -64,7 +64,7 @@ pub async fn get_role(
     id: &str,
 ) -> AppResult<Json<Role>> {
     user.check_system_role()?;
-    let id = Uuid::parse_str(id).map_err(|_| AppError::ValidationError("无效的角色ID".into()))?;
+    let id = Uuid::parse_str(id).map_err(|_| AppError::validation("无效的角色ID"))?;
     let service = AdminService::new(pool);
     let response = service.get_role(&id).await?;
     Ok(Json(response))
@@ -92,8 +92,8 @@ pub async fn create_role(
     req: Json<CreateRoleRequest>,
 ) -> AppResult<(Status, Json<Role>)> {
     user.check_system_role()?;
-    let service = AdminService::new(pool);
-    let response = service.create_role(req.name.clone(), req.description.clone()).await?;
+    let service = AdminService::new(pool).with_actor(Some(user.id));
+    let response = service.create_role(req.name.clone(), req.description.clone(), req.data_scope.clone()).await?;
     Ok((Status::Created, Json(response)))
 }
 
@@ -124,9 +124,9 @@ pub async fn update_role(
     req: Json<UpdateRoleRequest>,
 ) -> AppResult<Json<Role>> {
     user.check_system_role()?;
-    let id = Uuid::parse_str(id).map_err(|_| AppError::ValidationError("无效的角色ID".into()))?;
-    let service = AdminService::new(pool);
-    let response = service.update_role(&id, req.name.clone(), req.description.clone()).await?;
+    let id = Uuid::parse_str(id).map_err(|_| AppError::validation("无效的角色ID"))?;
+    let service = AdminService::new(pool).with_actor(Some(user.id));
+    let response = service.update_role(&id, req.name.clone(), req.description.clone(), req.data_scope.clone()).await?;
     Ok(Json(response))
 }
 
@@ -155,8 +155,8 @@ pub async fn delete_role(
     id: &str,
 ) -> AppResult<Status> {
     user.check_system_role()?;
-    let id = Uuid::parse_str(id).map_err(|_| AppError::ValidationError("无效的角色ID".into()))?;
-    let service = AdminService::new(pool);
+    let id = Uuid::parse_str(id).map_err(|_| AppError::validation("无效的角色ID"))?;
+    let service = AdminService::new(pool).with_actor(Some(user.id));
     service.delete_role(&id).await?;
     Ok(Status::NoContent)
 }
@@ -185,7 +185,7 @@ pub async fn get_role_modules(
     id: &str,
 ) -> AppResult<Json<RoleModuleResponse>> {
     user.check_system_role()?;
-    let id = Uuid::parse_str(id).map_err(|_| AppError::ValidationError("无效的角色ID".into()))?;
+    let id = Uuid::parse_str(id).map_err(|_| AppError::validation("无效的角色ID"))?;
     let service = AdminService::new(pool);
     let response = service.get_role_modules(&id).await?;
     Ok(Json(response))
@@ -217,8 +217,8 @@ pub async fn assign_module(
     req: Json<AssignModuleRequest>,
 ) -> AppResult<Status> {
     user.check_system_role()?;
-    let id = Uuid::parse_str(id).map_err(|_| AppError::ValidationError("无效的角色ID".into()))?;
-    let service = AdminService::new(pool);
+    let id = Uuid::parse_str(id).map_err(|_| AppError::validation("无效的角色ID"))?;
+    let service = AdminService::new(pool).with_actor(Some(user.id));
     service.assign_module(&id, &req.module_code).await?;
     Ok(Status::NoContent)
 }
@@ -249,8 +249,8 @@ pub async fn revoke_module(
     module_code: &str,
 ) -> AppResult<Status> {
     user.check_system_role()?;
-    let id = Uuid::parse_str(id).map_err(|_| AppError::ValidationError("无效的角色ID".into()))?;
-    let service = AdminService::new(pool);
+    let id = Uuid::parse_str(id).map_err(|_| AppError::validation("无效的角色ID"))?;
+    let service = AdminService::new(pool).with_actor(Some(user.id));
     service.revoke_module(&id, module_code).await?;
     Ok(Status::NoContent)
 }
@@ -281,8 +281,8 @@ pub async fn batch_assign_modules(
     req: Json<BatchAssignModulesRequest>,
 ) -> AppResult<Status> {
     user.check_system_role()?;
-    let id = Uuid::parse_str(id).map_err(|_| AppError::ValidationError("无效的角色ID".into()))?;
-    let service = AdminService::new(pool);
+    let id = Uuid::parse_str(id).map_err(|_| AppError::validation("无效的角色ID"))?;
+    let service = AdminService::new(pool).with_actor(Some(user.id));
     service.batch_assign_modules(&id, &req.module_codes).await?;
     Ok(Status::NoContent)
 }
@@ -313,8 +313,8 @@ pub async fn set_role_modules(
     req: Json<SetRoleModulesRequest>,
 ) -> AppResult<Status> {
     user.check_system_role()?;
-    let id = Uuid::parse_str(id).map_err(|_| AppError::ValidationError("无效的角色ID".into()))?;
-    let service = AdminService::new(pool);
+    let id = Uuid::parse_str(id).map_err(|_| AppError::validation("无效的角色ID"))?;
+    let service = AdminService::new(pool).with_actor(Some(user.id));
     service.set_role_modules(&id, &req.module_codes).await?;
     Ok(Status::NoContent)
 }
@@ -428,7 +428,7 @@ pub async fn get_audit_log(
     id: &str,
 ) -> AppResult<Json<AuditLog>> {
     user.check_system_role()?;
-    let id = Uuid::parse_str(id).map_err(|_| AppError::ValidationError("无效的日志ID".into()))?;
+    let id = Uuid::parse_str(id).map_err(|_| AppError::validation("无效的日志ID"))?;
     let service = AdminService::new(pool);
     let response = service.get_audit_log(&id).await?;
     Ok(Json(response))

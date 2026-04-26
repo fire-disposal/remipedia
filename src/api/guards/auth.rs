@@ -17,6 +17,8 @@ pub struct AuthenticatedUser {
     pub is_system_role: bool,
     /// 可访问模块列表
     pub accessible_modules: Vec<String>,
+    /// 数据范围：all(全部), self(仅自己), department(科室)
+    pub data_scope: String,
 }
 
 impl AuthenticatedUser {
@@ -51,12 +53,13 @@ impl<'r> FromRequest<'r> for AuthenticatedUser {
                     Some(config) => {
                         let verifier = JwtVerifier::new(config);
                         match verifier.verify_access_token(token) {
-                            Ok((user_id, role_id, is_system_role, modules)) => {
+                            Ok((user_id, role_id, is_system_role, modules, data_scope)) => {
                                 Outcome::Success(Self {
                                     id: user_id,
                                     role_id,
                                     is_system_role,
                                     accessible_modules: modules,
+                                    data_scope,
                                 })
                             }
                             Err(e) => Outcome::Error((Status::Unauthorized, e)),
@@ -64,13 +67,13 @@ impl<'r> FromRequest<'r> for AuthenticatedUser {
                     }
                     None => Outcome::Error((
                         Status::InternalServerError,
-                        AppError::InternalError("JWT 配置缺失".into()),
+                        AppError::internal("JWT 配置缺失"),
                     )),
                 }
             }
             _ => Outcome::Error((
                 Status::Unauthorized,
-                AppError::Unauthorized("缺少认证信息".into()),
+                AppError::unauthorized("缺少认证信息"),
             )),
         }
     }

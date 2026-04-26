@@ -38,27 +38,27 @@ impl<'a> JwtVerifier<'a> {
     }
 
     /// 验证 Access Token
-    /// 返回 (user_id, role_id, is_system_role, modules)
+    /// 返回 (user_id, role_id, is_system_role, modules, data_scope)
     pub fn verify_access_token(&self, token: &str
-    ) -> AppResult<(Uuid, Uuid, bool, Vec<String>)> {
+    ) -> AppResult<(Uuid, Uuid, bool, Vec<String>, String)> {
         let token_data = decode::<Claims>(
             token,
             &DecodingKey::from_secret(self.jwt_config.secret.as_bytes()),
             &jwt_validation(),
         )
-        .map_err(|_| AppError::Unauthorized("无效的访问令牌".into()))?;
+        .map_err(|_| AppError::unauthorized("无效的访问令牌"))?;
 
         let claims = token_data.claims;
 
         // 验证是否为 access token
         if !claims.is_access_token() {
-            return Err(AppError::Unauthorized("无效的令牌类型".into()));
+            return Err(AppError::unauthorized("无效的令牌类型"));
         }
 
         let user_id = claims.user_id()?;
         let role_id = claims.role_id()?;
 
-        Ok((user_id, role_id, claims.is_system_role, claims.modules))
+        Ok((user_id, role_id, claims.is_system_role, claims.modules, claims.data_scope.clone()))
     }
 }
 
@@ -87,31 +87,31 @@ impl<'a> AuthService<'a> {
             .user_repo
             .find_by_username(&req.username)
             .await?
-            .ok_or(AppError::Unauthorized("用户名或密码错误".into()))?;
+            .ok_or(AppError::unauthorized("用户名或密码错误"))?;
 
         // 验证密码
         let parsed_hash =
-            PasswordHash::new(&user.password_hash).map_err(|_| AppError::InternalError("密码哈希解析失败".into()))?;
+            PasswordHash::new(&user.password_hash).map_err(|_| AppError::internal("密码哈希解析失败"))?;
 
         Argon2::default()
             .verify_password(req.password.as_bytes(), &parsed_hash)
-            .map_err(|_| AppError::Unauthorized("密码错误".into()))?;
+            .map_err(|_| AppError::unauthorized("密码错误"))?;
 
         // 检查用户状态
         if user.status != "active" {
-            return Err(AppError::Unauthorized("用户已被禁用".into()));
+            return Err(AppError::unauthorized("用户已被禁用"));
         }
 
         // 更新最后登录时间
         self.user_repo.update_last_login(&user.id).await?;
 
         // 获取角色的模块权限（通过 RoleRepository）
-        let (is_system_role, accessible_modules) = 
+        let (is_system_role, accessible_modules, data_scope) =
             self.role_repo.get_accessible_modules(&user.role_id).await?;
 
         // 生成令牌
         let (access_token, expires_at) = self.generate_access_token(
-            &user.id, &user.role_id, is_system_role, &accessible_modules
+            &user.id, &user.role_id, is_system_role, &accessible_modules, &data_scope
         )?;
         let refresh_token = self.generate_refresh_token(&user.id).await?;
 
@@ -132,6 +132,7 @@ impl<'a> AuthService<'a> {
                 role_name,
                 is_system_role,
                 accessible_modules,
+                data_scope,
                 email: user.email,
                 status: user.status,
                 created_at: user.created_at,
@@ -151,7 +152,7 @@ impl<'a> AuthService<'a> {
 
         // 校验 refresh token 是否存在且未撤销
         if !self.refresh_token_repo.is_valid(&token_hash).await? {
-            return Err(AppError::Unauthorized("无效的刷新令牌".into()));
+            return Err(AppError::unauthorized("无效的刷新令牌"));
         }
 
         // 获取用户信息
@@ -159,19 +160,19 @@ impl<'a> AuthService<'a> {
 
         // 检查用户状态
         if user.status != "active" {
-            return Err(AppError::Unauthorized("用户已被禁用".into()));
+            return Err(AppError::unauthorized("用户已被禁用"));
         }
 
         // 撤销旧的 refresh token
         self.refresh_token_repo.revoke(&token_hash).await?;
 
         // 获取角色的模块权限（通过 RoleRepository）
-        let (is_system_role, accessible_modules) = 
+        let (is_system_role, accessible_modules, data_scope) =
             self.role_repo.get_accessible_modules(&user.role_id).await?;
 
         // 生成新的令牌
         let (access_token, expires_at) = self.generate_access_token(
-            &user.id, &user.role_id, is_system_role, &accessible_modules
+            &user.id, &user.role_id, is_system_role, &accessible_modules, &data_scope
         )?;
         let refresh_token = self.generate_refresh_token(&user.id).await?;
 
@@ -192,18 +193,18 @@ impl<'a> AuthService<'a> {
         req: ChangePasswordRequest,
     ) -> AppResult<()> {
         if req.old_password == req.new_password {
-            return Err(AppError::ValidationError("新密码不能与旧密码相同".into()));
+            return Err(AppError::validation("新密码不能与旧密码相同"));
         }
 
         let user = self.user_repo.find_by_id(user_id).await?;
 
         // 验证旧密码
         let parsed_hash =
-            PasswordHash::new(&user.password_hash).map_err(|_| AppError::InternalError("密码哈希解析失败".into()))?;
+            PasswordHash::new(&user.password_hash).map_err(|_| AppError::internal("密码哈希解析失败"))?;
 
         Argon2::default()
             .verify_password(req.old_password.as_bytes(), &parsed_hash)
-            .map_err(|_| AppError::Unauthorized("密码错误".into()))?;
+            .map_err(|_| AppError::unauthorized("密码错误"))?;
 
         // 哈希新密码
         let new_hash = Self::hash_password(&req.new_password)?;
@@ -233,7 +234,7 @@ impl<'a> AuthService<'a> {
         let role_name = role.map(|r| r.name).unwrap_or_else(|| "unknown".to_string());
         
         // 获取模块权限（通过 RoleRepository）
-        let (is_system_role, accessible_modules) = 
+        let (is_system_role, accessible_modules, data_scope) =
             self.role_repo.get_accessible_modules(&user.role_id).await?;
 
         Ok(UserInfo {
@@ -243,6 +244,7 @@ impl<'a> AuthService<'a> {
             role_name,
             is_system_role,
             accessible_modules,
+            data_scope,
             email: user.email,
             status: user.status,
             created_at: user.created_at,
@@ -256,20 +258,20 @@ impl<'a> AuthService<'a> {
     ) -> AppResult<RegisterResponse> {
         // 检查用户名是否已存在
         if self.user_repo.exists_by_username(&req.username).await? {
-            return Err(AppError::ValidationError("用户名已存在".into()));
+            return Err(AppError::validation("用户名已存在"));
         }
 
         // 检查邮箱是否已存在
         if let Some(ref email) = req.email {
             if self.user_repo.exists_by_email(email).await? {
-                return Err(AppError::ValidationError("邮箱已被使用".into()));
+                return Err(AppError::validation("邮箱已被使用"));
             }
         }
 
         // 检查手机号是否已存在
         if let Some(ref phone) = req.phone {
             if self.user_repo.exists_by_phone(phone).await? {
-                return Err(AppError::ValidationError("手机号已被使用".into()));
+                return Err(AppError::validation("手机号已被使用"));
             }
         }
 
@@ -277,7 +279,7 @@ impl<'a> AuthService<'a> {
         let default_role = self.role_repo.find_by_name("caregiver").await?;
         let role_id = default_role
             .map(|r| r.id)
-            .ok_or_else(|| AppError::InternalError("默认角色未找到".into()))?;
+            .ok_or_else(|| AppError::internal("默认角色未找到"))?;
 
         // 哈希密码
         let password_hash = Self::hash_password(&req.password)?;
@@ -296,7 +298,7 @@ impl<'a> AuthService<'a> {
         let role_name = role.map(|r| r.name).unwrap_or_else(|| "unknown".to_string());
         
         // 获取模块权限（通过 RoleRepository）
-        let (is_system_role, accessible_modules) = 
+        let (is_system_role, accessible_modules, data_scope) =
             self.role_repo.get_accessible_modules(&user.role_id).await?;
 
         info!("用户注册成功: user_id={}", user.id);
@@ -310,6 +312,7 @@ impl<'a> AuthService<'a> {
                 role_name,
                 is_system_role,
                 accessible_modules,
+                data_scope,
                 email: user.email,
                 status: user.status,
                 created_at: user.created_at,
@@ -366,7 +369,7 @@ impl<'a> AuthService<'a> {
         &self, req: VerifyTokenRequest
     ) -> AppResult<VerifyTokenResponse> {
         match JwtVerifier::new(self.jwt_config).verify_access_token(&req.access_token) {
-            Ok((user_id, _, _, _)) => {
+            Ok((user_id, _, _, _, _)) => {
                 // 获取完整用户信息
                 match self.get_me(&user_id).await {
                     Ok(user_info) => {
@@ -396,7 +399,7 @@ impl<'a> AuthService<'a> {
         argon2
             .hash_password(password.as_bytes(), &salt)
             .map(|hash| hash.to_string())
-            .map_err(|_| AppError::InternalError("密码哈希失败".into()))
+            .map_err(|_| AppError::internal("密码哈希失败"))
     }
 
     /// 生成 Access Token
@@ -406,14 +409,16 @@ impl<'a> AuthService<'a> {
         role_id: &Uuid,
         is_system_role: bool,
         modules: &[String],
+        data_scope: &str,
     ) -> AppResult<(String, chrono::DateTime<Utc>)> {
         let expires_at = Utc::now() + Duration::hours(self.jwt_config.expiration_hours as i64);
         let claims = Claims::new_access(
-            user_id, 
-            role_id, 
+            user_id,
+            role_id,
             is_system_role,
             modules.to_vec(),
-            expires_at, 
+            data_scope,
+            expires_at,
             JWT_ISSUER
         );
 
@@ -422,7 +427,7 @@ impl<'a> AuthService<'a> {
             &claims,
             &EncodingKey::from_secret(self.jwt_config.secret.as_bytes()),
         )
-        .map_err(|_| AppError::InternalError("JWT 签名失败".into()))?;
+        .map_err(|_| AppError::internal("JWT 签名失败"))?;
 
         Ok((token, expires_at))
     }
@@ -440,7 +445,7 @@ impl<'a> AuthService<'a> {
             &claims,
             &EncodingKey::from_secret(self.jwt_config.secret.as_bytes()),
         )
-        .map_err(|_| AppError::InternalError("Refresh Token 生成失败".into()))?;
+        .map_err(|_| AppError::internal("Refresh Token 生成失败"))?;
 
         // 存储 refresh token 的哈希值
         let token_hash = Self::hash_token(&token);
@@ -463,13 +468,13 @@ impl<'a> AuthService<'a> {
             &DecodingKey::from_secret(self.jwt_config.secret.as_bytes()),
             &jwt_validation(),
         )
-        .map_err(|_| AppError::Unauthorized("无效的刷新令牌".into()))?;
+        .map_err(|_| AppError::unauthorized("无效的刷新令牌"))?;
 
         let claims = token_data.claims;
 
         // 验证是否为 refresh token
         if !claims.is_refresh_token() {
-            return Err(AppError::Unauthorized("无效的令牌类型".into()));
+            return Err(AppError::unauthorized("无效的令牌类型"));
         }
 
         Ok(claims)

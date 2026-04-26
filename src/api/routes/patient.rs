@@ -34,7 +34,7 @@ pub async fn create_patient(
     _user: AuthenticatedUser,
     req: Json<CreatePatientRequest>,
 ) -> AppResult<(Status, Json<Patient>)> {
-    let service = PatientService::new(pool);
+    let service = PatientService::new(pool).with_actor(Some(_user.id));
     let response = service.create(req.into_inner()).await?;
     Ok((Status::Created, Json(response)))
 }
@@ -61,7 +61,7 @@ pub async fn get_patient(
     _user: AuthenticatedUser,
     id: &str,
 ) -> AppResult<Json<Patient>> {
-    let id = Uuid::parse_str(id).map_err(|_| AppError::ValidationError("无效的患者 ID".into()))?;
+    let id = Uuid::parse_str(id).map_err(|_| AppError::validation("无效的患者 ID"))?;
     let service = PatientService::new(pool);
     let response = service.get_by_id(&id).await?;
     Ok(Json(response))
@@ -89,7 +89,7 @@ pub async fn get_patient_detail(
     _user: AuthenticatedUser,
     id: &str,
 ) -> AppResult<Json<PatientDetailResponse>> {
-    let id = Uuid::parse_str(id).map_err(|_| AppError::ValidationError("无效的患者 ID".into()))?;
+    let id = Uuid::parse_str(id).map_err(|_| AppError::validation("无效的患者 ID"))?;
     let service = PatientService::new(pool);
     let response = service.get_detail(&id).await?;
     Ok(Json(response))
@@ -119,7 +119,7 @@ pub async fn get_patient_devices(
     id: &str,
     active_only: Option<bool>,
 ) -> AppResult<Json<Vec<DeviceResponse>>> {
-    let id = Uuid::parse_str(id).map_err(|_| AppError::ValidationError("无效的患者 ID".into()))?;
+    let id = Uuid::parse_str(id).map_err(|_| AppError::validation("无效的患者 ID"))?;
     let service = PatientService::new(pool);
     let devices = service.get_patient_devices(&id, active_only.unwrap_or(true)).await?;
     Ok(Json(devices))
@@ -149,8 +149,8 @@ pub async fn update_patient(
     id: &str,
     req: Json<UpdatePatientRequest>,
 ) -> AppResult<Json<Patient>> {
-    let id = Uuid::parse_str(id).map_err(|_| AppError::ValidationError("无效的患者 ID".into()))?;
-    let service = PatientService::new(pool);
+    let id = Uuid::parse_str(id).map_err(|_| AppError::validation("无效的患者 ID"))?;
+    let service = PatientService::new(pool).with_actor(Some(_user.id));
     let response = service.update(&id, req.into_inner()).await?;
     Ok(Json(response))
 }
@@ -177,8 +177,8 @@ pub async fn delete_patient(
     _user: AuthenticatedUser,
     id: &str,
 ) -> AppResult<Status> {
-    let id = Uuid::parse_str(id).map_err(|_| AppError::ValidationError("无效的患者 ID".into()))?;
-    let service = PatientService::new(pool);
+    let id = Uuid::parse_str(id).map_err(|_| AppError::validation("无效的患者 ID"))?;
+    let service = PatientService::new(pool).with_actor(Some(_user.id));
     service.delete(&id).await?;
     Ok(Status::NoContent)
 }
@@ -243,7 +243,7 @@ pub async fn get_patient_profile(
     _user: AuthenticatedUser,
     id: &str,
 ) -> AppResult<Json<Option<PatientProfileResponse>>> {
-    let id = Uuid::parse_str(id).map_err(|_| AppError::ValidationError("无效的患者 ID".into()))?;
+    let id = Uuid::parse_str(id).map_err(|_| AppError::validation("无效的患者 ID"))?;
     let service = PatientService::new(pool);
     let response = service.get_profile(&id).await?;
     Ok(Json(response))
@@ -273,8 +273,8 @@ pub async fn update_patient_profile(
     id: &str,
     req: Json<CreatePatientProfileRequest>,
 ) -> AppResult<Json<PatientProfileResponse>> {
-    let id = Uuid::parse_str(id).map_err(|_| AppError::ValidationError("无效的患者 ID".into()))?;
-    let service = PatientService::new(pool);
+    let id = Uuid::parse_str(id).map_err(|_| AppError::validation("无效的患者 ID"))?;
+    let service = PatientService::new(pool).with_actor(Some(_user.id));
     let response = service.upsert_profile(&id, req.into_inner()).await?;
     Ok(Json(response))
 }
@@ -301,8 +301,8 @@ pub async fn delete_patient_profile(
     _user: AuthenticatedUser,
     id: &str,
 ) -> AppResult<Status> {
-    let id = Uuid::parse_str(id).map_err(|_| AppError::ValidationError("无效的患者 ID".into()))?;
-    let service = PatientService::new(pool);
+    let id = Uuid::parse_str(id).map_err(|_| AppError::validation("无效的患者 ID"))?;
+    let service = PatientService::new(pool).with_actor(Some(_user.id));
     service.delete_profile(&id).await?;
     Ok(Status::NoContent)
 }

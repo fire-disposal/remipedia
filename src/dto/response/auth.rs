@@ -45,6 +45,8 @@ pub struct UserInfo {
     pub is_system_role: bool,
     /// 可访问模块列表（["*"] 表示通配）
     pub accessible_modules: Vec<String>,
+    /// 数据范围：all(全部数据), self(仅自己), department(科室)
+    pub data_scope: String,
     /// 邮箱
     pub email: Option<String>,
     /// 状态

@@ -41,6 +41,11 @@ use utoipa_swagger_ui::SwaggerUi;
         // Data
         crate::api::routes::data::report_data,
         crate::api::routes::data::query_data,
+        crate::api::routes::data::query_alerts,
+        crate::api::routes::data::get_alert_stats,
+        crate::api::routes::data::acknowledge_event,
+        crate::api::routes::data::resolve_event,
+        crate::api::routes::data::get_latest_data,
         // Admin - Roles & Modules
         crate::api::routes::admin::list_roles,
         crate::api::routes::admin::get_role,
@@ -103,12 +108,16 @@ use utoipa_swagger_ui::SwaggerUi;
             crate::dto::response::BindingInfo,
             crate::dto::response::BindingListResponse,
             crate::dto::response::DataReportResponse,
-            crate::core::entity::Datasheet,
             crate::dto::response::DataQueryResponse,
+            crate::dto::response::ObservationResponse,
+            crate::dto::response::AlertEventResponse,
+            crate::dto::response::AlertStatsResponse,
             crate::dto::response::RawDataRecordResponse,
             crate::dto::response::RawDataQueryResponse,
             crate::dto::response::RawDataDetailResponse,
             crate::dto::response::Pagination,
+            // Request schemas for data routes
+            crate::api::routes::data::EventActionRequest,
             // Entities (used as response schemas)
             crate::core::entity::Role,
             crate::dto::response::RoleListResponse,

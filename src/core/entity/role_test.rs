@@ -12,6 +12,7 @@ mod tests {
             name: "test_role".to_string(),
             description: Some("Test description".to_string()),
             is_system: false,
+            data_scope: "all".to_string(),
             created_at: Utc::now(),
             updated_at: Utc::now(),
         };
@@ -27,6 +28,7 @@ mod tests {
         let new_role = NewRole {
             name: "doctor".to_string(),
             description: Some("Doctor role".to_string()),
+            data_scope: None,
         };
 
         assert_eq!(new_role.name, "doctor");
@@ -39,6 +41,7 @@ mod tests {
         let update = UpdateRole {
             name: Some("updated_role".to_string()),
             description: Some("Updated description".to_string()),
+            data_scope: None,
         };
 
         assert_eq!(update.name, Some("updated_role".to_string()));
@@ -48,10 +51,12 @@ mod tests {
         let partial_update = UpdateRole {
             name: None,
             description: Some("Only update description".to_string()),
+            data_scope: Some("self".to_string()),
         };
 
         assert!(partial_update.name.is_none());
         assert!(partial_update.description.is_some());
+        assert_eq!(partial_update.data_scope, Some("self".to_string()));
     }
 
     /// 测试系统角色标记
@@ -62,6 +67,7 @@ mod tests {
             name: "super_admin".to_string(),
             description: Some("System admin".to_string()),
             is_system: true,
+            data_scope: "all".to_string(),
             created_at: Utc::now(),
             updated_at: Utc::now(),
         };
@@ -71,6 +77,7 @@ mod tests {
             name: "custom_role".to_string(),
             description: None,
             is_system: false,
+            data_scope: "self".to_string(),
             created_at: Utc::now(),
             updated_at: Utc::now(),
         };

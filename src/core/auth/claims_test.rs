@@ -37,6 +37,7 @@ mod tests {
             &role_id,
             false,
             modules.clone(),
+            "all",
             expires_at,
             "test_issuer",
         );
@@ -67,6 +68,7 @@ mod tests {
             &role_id,
             true,   // is_system_role
             vec![], // 空模块列表，系统角色不需要
+            "all",
             expires_at,
             "test_issuer",
         );
@@ -90,6 +92,7 @@ mod tests {
             &role_id,
             false,
             vec![],
+            "all",
             expires_at,
             "test_issuer",
         );
@@ -125,7 +128,7 @@ mod tests {
         let expires_at = Utc::now() + chrono::Duration::hours(1);
 
         let access_claims =
-            Claims::new_access(&user_id, &role_id, false, vec![], expires_at, "test_issuer");
+            Claims::new_access(&user_id, &role_id, false, vec![], "all", expires_at, "test_issuer");
 
         assert!(access_claims.is_access_token());
         assert!(!access_claims.is_refresh_token());

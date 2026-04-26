@@ -1,7 +1,13 @@
+//! Ingest 层数据载体类型
+//!
+//! 这些类型是 Ingest 模块内部使用的中间数据格式。
+//! 从旧 `datasheet.rs` 迁移而来，剥离核心实体层后置于 Ingest 层。
+//!
+//! 用途：Ingest 模块的 process_* 函数生成 Vec<DataPoint>，
+//! 通过 store_data_points() 桥接转换为新的 Observation/AlertEvent 格式写入新表。
+
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-use sqlx::FromRow;
-use utoipa::ToSchema;
 use uuid::Uuid;
 
 /// 数据分类
@@ -13,7 +19,6 @@ pub enum DataCategory {
     Metric, // 指标数据
     Event,  // 事件/告警
 }
-
 
 impl std::fmt::Display for DataCategory {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -36,7 +41,7 @@ impl std::str::FromStr for DataCategory {
     }
 }
 
-/// 事件严重级别
+/// 事件严重级别（Ingest 模块内部使用）
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Severity {
@@ -68,7 +73,7 @@ impl std::str::FromStr for Severity {
     }
 }
 
-/// 事件状态
+/// 事件状态（Ingest 模块内部使用）
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum EventStatus {
@@ -100,48 +105,9 @@ impl std::str::FromStr for EventStatus {
     }
 }
 
-/// 统一数据实体（指标 + 事件），同时作为API响应体
-#[derive(Debug, Clone, Serialize, Deserialize, FromRow, ToSchema)]
-pub struct Datasheet {
-    pub id: Uuid,
-    pub time: DateTime<Utc>,
-    pub device_id: Option<Uuid>,
-    pub patient_id: Option<Uuid>, // 患者ID（从绑定自动填充）
-    pub data_type: String,
-    pub data_category: String,             // metric/event
-    pub value_numeric: Option<f64>,        // 数值
-    pub value_text: Option<String>,        // 文本值
-    pub severity: Option<String>,          // info/warning/alert
-    pub status: Option<String>,            // active/acknowledged/resolved
-    pub payload: serde_json::Value,        // 原始数据
-    pub source: String,
-    pub ingested_at: DateTime<Utc>,
-    pub updated_at: DateTime<Utc>,
-}
-
-impl Datasheet {
-    /// 检查是否为事件
-    pub fn is_event(&self) -> bool {
-        self.data_category == "event"
-    }
-
-    /// 检查是否为活跃告警
-    pub fn is_active_alert(&self) -> bool {
-        self.is_event() && self.status.as_deref() == Some("active")
-    }
-
-    /// 获取严重级别
-    pub fn severity(&self) -> Option<Severity> {
-        self.severity.as_ref()?.parse().ok()
-    }
-
-    /// 获取事件状态
-    pub fn status(&self) -> Option<EventStatus> {
-        self.status.as_ref()?.parse().ok()
-    }
-}
-
-/// 数据点（统一入口）
+/// 数据点（Ingest 模块通用中间格式）
+///
+/// Ingest 模块内部生成此格式，通过 `store_data_points()` 桥接写入新表。
 #[derive(Debug, Clone)]
 pub struct DataPoint {
     pub time: DateTime<Utc>,
@@ -221,33 +187,4 @@ impl DataPoint {
         self.status = Some(status);
         self
     }
-}
-
-/// 数据查询参数
-#[derive(Debug, Clone, Default)]
-pub struct DataQuery {
-    pub patient_id: Option<Uuid>,
-    pub device_id: Option<Uuid>,
-    pub data_type: Option<String>,
-    pub data_category: Option<DataCategory>,
-    pub severity: Option<Severity>,
-    pub status: Option<EventStatus>,
-    pub start_time: Option<DateTime<Utc>>,
-    pub end_time: Option<DateTime<Utc>>,
-    pub page: u32,
-    pub page_size: u32,
-}
-
-/// 事件确认请求
-#[derive(Debug, Clone)]
-pub struct AcknowledgeEventRequest {
-    pub user_id: Uuid,
-    pub note: Option<String>,
-}
-
-/// 事件解决请求
-#[derive(Debug, Clone)]
-pub struct ResolveEventRequest {
-    pub user_id: Uuid,
-    pub note: Option<String>,
 }

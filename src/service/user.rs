@@ -8,9 +8,11 @@ use crate::dto::request::{CreateUserRequest, UpdateUserRequest, UserQuery};
 use crate::dto::response::{Pagination, UserListResponse, UserResponse};
 use crate::errors::{AppError, AppResult};
 use crate::repository::{RoleRepository, UserRepository};
-use crate::service::AuthService;
+use crate::service::{log_audit_success, AuthService};
 
 pub struct UserService<'a> {
+    pool: &'a PgPool,
+    actor_id: Option<Uuid>,
     user_repo: UserRepository<'a>,
     role_repo: RoleRepository<'a>,
 }
@@ -18,9 +20,17 @@ pub struct UserService<'a> {
 impl<'a> UserService<'a> {
     pub fn new(pool: &'a PgPool) -> Self {
         Self {
+            pool,
+            actor_id: None,
             user_repo: UserRepository::new(pool),
             role_repo: RoleRepository::new(pool),
         }
+    }
+
+    /// 设置操作者 ID（审计日志用）
+    pub fn with_actor(mut self, actor_id: Option<Uuid>) -> Self {
+        self.actor_id = actor_id;
+        self
     }
 
     /// 将 User 实体转换为 UserResponse（替代 User::to_response 的跨层调用）
@@ -48,16 +58,16 @@ impl<'a> UserService<'a> {
     pub async fn create(&self, req: CreateUserRequest) -> AppResult<UserResponse> {
         // 验证角色存在
         let role_id = Uuid::parse_str(&req.role_id)
-            .map_err(|_| AppError::ValidationError("无效的角色ID".into()))?;
+            .map_err(|_| AppError::validation("无效的角色ID"))?;
 
         let role = self.role_repo.find_by_id(&role_id).await?;
         if role.is_none() {
-            return Err(AppError::ValidationError("角色不存在".into()));
+            return Err(AppError::validation("角色不存在"));
         }
 
         // 检查用户名是否存在
         if self.user_repo.exists_by_username(&req.username).await? {
-            return Err(AppError::Conflict("用户名已存在".into()));
+            return Err(AppError::conflict("用户名已存在"));
         }
 
         // 哈希密码
@@ -80,6 +90,17 @@ impl<'a> UserService<'a> {
             user.id, user.username
         );
 
+        // 记录审计日志
+        log_audit_success(
+            self.pool,
+            self.actor_id,
+            "CREATE_USER",
+            "User",
+            Some(user.id.to_string()),
+            None,
+        )
+        .await?;
+
         // 转换为UserResponse
         self.to_user_response(user).await
     }
@@ -91,13 +112,11 @@ impl<'a> UserService<'a> {
     }
 
     /// 更新用户
-    pub async fn update(
-        &self, id: &Uuid, req: UpdateUserRequest
-    ) -> AppResult<UserResponse> {
+    pub async fn update(&self, id: &Uuid, req: UpdateUserRequest) -> AppResult<UserResponse> {
         if let Some(status) = req.status.as_deref() {
             let is_valid = matches!(status, "active" | "inactive" | "locked");
             if !is_valid {
-                return Err(AppError::ValidationError("无效的状态值".into()));
+                return Err(AppError::validation("无效的状态值"));
             }
         }
 
@@ -113,6 +132,17 @@ impl<'a> UserService<'a> {
             .await?;
 
         info!("用户更新成功: user_id={}", user.id);
+
+        // 记录审计日志
+        log_audit_success(
+            self.pool,
+            self.actor_id,
+            "UPDATE_USER",
+            "User",
+            Some(user.id.to_string()),
+            None,
+        )
+        .await?;
 
         self.to_user_response(user).await
     }
@@ -183,10 +213,21 @@ impl<'a> UserService<'a> {
     }
 
     /// 删除用户
-    pub async fn delete(
-        &self, id: &Uuid) -> AppResult<()> {
+    pub async fn delete(&self, id: &Uuid) -> AppResult<()> {
         self.user_repo.delete(id).await?;
         info!("用户删除成功: user_id={}", id);
+
+        // 记录审计日志
+        log_audit_success(
+            self.pool,
+            self.actor_id,
+            "DELETE_USER",
+            "User",
+            Some(id.to_string()),
+            None,
+        )
+        .await?;
+
         Ok(())
     }
 }

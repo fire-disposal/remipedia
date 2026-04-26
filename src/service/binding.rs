@@ -8,8 +8,11 @@ use crate::dto::request::{CreateBindingRequest, EndBindingRequest, SwitchBinding
 use crate::dto::response::{BindingListResponse, Pagination};
 use crate::errors::{AppError, AppResult};
 use crate::repository::{BindingRepository, DeviceRepository, PatientRepository};
+use crate::service::log_audit_success;
 
 pub struct BindingService<'a> {
+    pool: &'a PgPool,
+    actor_id: Option<Uuid>,
     binding_repo: BindingRepository<'a>,
     device_repo: DeviceRepository<'a>,
     patient_repo: PatientRepository<'a>,
@@ -18,10 +21,18 @@ pub struct BindingService<'a> {
 impl<'a> BindingService<'a> {
     pub fn new(pool: &'a PgPool) -> Self {
         Self {
+            pool,
+            actor_id: None,
             binding_repo: BindingRepository::new(pool),
             device_repo: DeviceRepository::new(pool),
             patient_repo: PatientRepository::new(pool),
         }
+    }
+
+    /// 设置操作者 ID（审计日志用）
+    pub fn with_actor(mut self, actor_id: Option<Uuid>) -> Self {
+        self.actor_id = actor_id;
+        self
     }
 
     /// 创建绑定
@@ -39,7 +50,7 @@ impl<'a> BindingService<'a> {
             .await?
             .is_some()
         {
-            return Err(AppError::Conflict("该设备已绑定".into()));
+            return Err(AppError::conflict("该设备已绑定"));
         }
 
         let binding = self
@@ -56,6 +67,16 @@ impl<'a> BindingService<'a> {
             binding.id, binding.device_id, binding.patient_id
         );
 
+        log_audit_success(
+            self.pool,
+            self.actor_id,
+            "BIND_DEVICE",
+            "Binding",
+            Some(binding.id.to_string()),
+            None,
+        )
+        .await?;
+
         Ok(binding)
     }
 
@@ -65,6 +86,17 @@ impl<'a> BindingService<'a> {
             .end_binding(binding_id, Utc::now())
             .await?;
         info!("绑定解除成功: binding_id={}", binding_id);
+
+        log_audit_success(
+            self.pool,
+            self.actor_id,
+            "UNBIND_DEVICE",
+            "Binding",
+            Some(binding_id.to_string()),
+            None,
+        )
+        .await?;
+
         Ok(())
     }
 
@@ -167,7 +199,7 @@ impl<'a> BindingService<'a> {
 
         // 检查是否已结束
         if binding.ended_at.is_some() {
-            return Err(AppError::ValidationError("绑定已经结束".into()));
+            return Err(AppError::validation("绑定已经结束"));
         }
 
         // 结束绑定
@@ -181,6 +213,16 @@ impl<'a> BindingService<'a> {
         }
 
         info!("绑定结束成功: binding_id={}", binding_id);
+
+        log_audit_success(
+            self.pool,
+            self.actor_id,
+            "END_BINDING",
+            "Binding",
+            Some(binding_id.to_string()),
+            None,
+        )
+        .await?;
 
         // 重新获取更新后的绑定
         let updated = self.binding_repo.find_by_id(binding_id).await?;
@@ -218,6 +260,16 @@ impl<'a> BindingService<'a> {
             "绑定切换成功: device_id={}, new_patient_id={}",
             req.device_id, req.new_patient_id
         );
+
+        log_audit_success(
+            self.pool,
+            self.actor_id,
+            "SWITCH_BINDING",
+            "Binding",
+            Some(new_binding.id.to_string()),
+            None,
+        )
+        .await?;
 
         Ok(new_binding)
     }

@@ -40,6 +40,8 @@ pub struct CreateRoleRequest {
     #[validate(length(min = 1, max = 50, message = "角色名称长度1-50"))]
     pub name: String,
     pub description: Option<String>,
+    /// 数据范围：all(全部), self(仅自己), department(科室)
+    pub data_scope: Option<String>,
 }
 
 /// 更新角色请求
@@ -47,6 +49,8 @@ pub struct CreateRoleRequest {
 pub struct UpdateRoleRequest {
     pub name: Option<String>,
     pub description: Option<String>,
+    /// 数据范围：all(全部), self(仅自己), department(科室)
+    pub data_scope: Option<String>,
 }
 
 /// 模块列表响应

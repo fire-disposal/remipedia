@@ -12,7 +12,7 @@ impl RepositoryHelper {
     /// 将 sqlx `RowNotFound` 错误映射为 [`AppError::NotFound`]。
     pub fn map_not_found_error(e: sqlx::Error, entity_name: &str, id: &Uuid) -> AppError {
         match e {
-            sqlx::Error::RowNotFound => AppError::NotFound(format!("{}: {}", entity_name, id)),
+            sqlx::Error::RowNotFound => AppError::not_found(format!("{}: {}", entity_name, id)),
             other => AppError::DatabaseError(other),
         }
     }
@@ -21,7 +21,7 @@ impl RepositoryHelper {
     pub fn map_write_error(e: sqlx::Error, duplicate_msg: &str) -> AppError {
         if let sqlx::Error::Database(db_err) = &e {
             if db_err.code().as_deref() == Some("23505") {
-                return AppError::ValidationError(duplicate_msg.into());
+                return AppError::validation(duplicate_msg);
             }
         }
         AppError::DatabaseError(e)
@@ -34,7 +34,7 @@ impl RepositoryHelper {
         id: &Uuid,
     ) -> AppResult<()> {
         if result.rows_affected() == 0 {
-            return Err(AppError::NotFound(format!("{}: {}", entity_name, id)));
+            return Err(AppError::not_found(format!("{}: {}", entity_name, id)));
         }
         Ok(())
     }
@@ -55,6 +55,6 @@ pub trait EnsureFound<T> {
 
 impl<T> EnsureFound<T> for Option<T> {
     fn ensure_found(self, entity_name: &str, id: &Uuid) -> AppResult<T> {
-        self.ok_or_else(|| AppError::NotFound(format!("{}: {}", entity_name, id)))
+        self.ok_or_else(|| AppError::not_found(format!("{}: {}", entity_name, id)))
     }
 }

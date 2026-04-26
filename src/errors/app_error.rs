@@ -44,13 +44,70 @@ impl From<uuid::Error> for AppError {
 
 impl From<std::io::Error> for AppError {
     fn from(e: std::io::Error) -> Self {
-        Self::InternalError(format!("IO 错误: {}", e))
+        Self::internal(format!("IO 错误: {}", e))
+    }
+}
+
+impl From<anyhow::Error> for AppError {
+    fn from(e: anyhow::Error) -> Self {
+        Self::internal(e.to_string())
+    }
+}
+
+impl From<config::ConfigError> for AppError {
+    fn from(e: config::ConfigError) -> Self {
+        Self::internal(format!("配置错误: {}", e))
+    }
+}
+
+impl From<rocket::Error> for AppError {
+    fn from(e: rocket::Error) -> Self {
+        Self::internal(format!("服务器错误: {}", e))
+    }
+}
+
+impl From<sqlx::migrate::MigrateError> for AppError {
+    fn from(e: sqlx::migrate::MigrateError) -> Self {
+        Self::internal(format!("数据库迁移错误: {}", e))
     }
 }
 
 pub type AppResult<T> = Result<T, AppError>;
 
 impl AppError {
+    // -----------------------------------------------------------------------
+    // 辅助构造方法 —— 简化调用方代码，消除重复的 format!/into 样板
+    // -----------------------------------------------------------------------
+
+    /// 构造「未找到」错误
+    pub fn not_found(msg: impl Into<String>) -> Self {
+        Self::NotFound(msg.into())
+    }
+
+    /// 构造「请求无效」错误（参数校验失败、格式错误等）
+    pub fn validation(msg: impl Into<String>) -> Self {
+        Self::ValidationError(msg.into())
+    }
+
+    /// 构造「认证失败」错误
+    pub fn unauthorized(msg: impl Into<String>) -> Self {
+        Self::Unauthorized(msg.into())
+    }
+
+    /// 构造「资源冲突」错误
+    pub fn conflict(msg: impl Into<String>) -> Self {
+        Self::Conflict(msg.into())
+    }
+
+    /// 构造「内部错误」
+    pub fn internal(msg: impl Into<String>) -> Self {
+        Self::InternalError(msg.into())
+    }
+
+    // -----------------------------------------------------------------------
+    // 响应构建
+    // -----------------------------------------------------------------------
+
     /// 将错误变体映射为 (HTTP 状态码, 客户端可见错误消息)
     fn to_response_parts(&self) -> (Status, String) {
         match self {

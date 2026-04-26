@@ -12,5 +12,6 @@
 //! - imu: IMU传感器MQTT模块 (JSON，跌倒检测)
 
 pub mod modules;
+pub mod types;
 
 pub use modules::*;

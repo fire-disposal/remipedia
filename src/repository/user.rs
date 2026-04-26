@@ -23,7 +23,7 @@ impl<'a> UserRepository<'a> {
         .fetch_one(self.pool)
         .await
         .map_err(|e| match e {
-            sqlx::Error::RowNotFound => AppError::NotFound(format!("用户: {}", id)),
+            sqlx::Error::RowNotFound => AppError::not_found(format!("用户: {}", id)),
             other => AppError::DatabaseError(other),
         })
     }
@@ -132,7 +132,7 @@ impl<'a> UserRepository<'a> {
         .fetch_one(self.pool)
         .await
         .map_err(|e| match e {
-            sqlx::Error::RowNotFound => AppError::NotFound(format!("用户: {}", id)),
+            sqlx::Error::RowNotFound => AppError::not_found(format!("用户: {}", id)),
             other => Self::map_write_error(other),
         })
     }
@@ -147,7 +147,7 @@ impl<'a> UserRepository<'a> {
         .fetch_one(self.pool)
         .await
         .map_err(|e| match e {
-            sqlx::Error::RowNotFound => AppError::NotFound(format!("用户: {}", id)),
+            sqlx::Error::RowNotFound => AppError::not_found(format!("用户: {}", id)),
             other => AppError::DatabaseError(other),
         })
     }
@@ -203,7 +203,7 @@ impl<'a> UserRepository<'a> {
             .map_err(AppError::DatabaseError)?;
 
         if result.rows_affected() == 0 {
-            return Err(AppError::NotFound(format!("用户: {}", id)));
+            return Err(AppError::not_found(format!("用户: {}", id)));
         }
 
         Ok(())
@@ -259,7 +259,7 @@ impl<'a> UserRepository<'a> {
     fn map_write_error(e: sqlx::Error) -> AppError {
         if let sqlx::Error::Database(db_err) = &e {
             if db_err.code().as_deref() == Some("23505") {
-                return AppError::ValidationError("手机号或邮箱已被使用".into());
+                return AppError::validation("手机号或邮箱已被使用");
             }
         }
         AppError::DatabaseError(e)

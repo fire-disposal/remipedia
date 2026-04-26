@@ -3,12 +3,16 @@
 //! 独立模块：使用rumqttc订阅MQTT主题，处理视觉识别设备的JSON数据
 //! 包含：MQTT连接 + 订阅 + JSON解析 + 事件检测
 
-use crate::core::entity::{DataPoint, DataCategory, Severity};
-use crate::errors::AppResult;
+use async_trait::async_trait;
+use crate::ingest::types::{DataCategory, DataPoint, Severity};
+use crate::errors::{AppError, AppResult};
 use crate::ingest::modules::mqtt_runner;
-use crate::repository::{DataRepository, RawDataRepository};
+use crate::ingest::modules::store_data_points;
+use crate::repository::RawDataRepository;
+use crate::service::DataService;
 use rumqttc::QoS;
 use sqlx::PgPool;
+use std::sync::Arc;
 use uuid::Uuid;
 
 /// 视觉识别模块配置
@@ -58,10 +62,14 @@ impl VisionModule {
     }
 
     /// 启动模块
+    ///
+    /// 1. 构造 MQTT 连接参数
+    /// 2. 创建 `VisionHandler`（实现 `MqttMessageHandler` trait）
+    /// 3. 通过 `spawn_mqtt_task` + `run_with_handler` 启动后台事件循环
     pub async fn start(&self, pool: &PgPool) -> AppResult<()> {
         log::info!(
-            "视觉识别模块启动，订阅: {} on {}:{}", 
-            self.config.mqtt_topic, 
+            "视觉识别模块启动，订阅: {} on {}:{}",
+            self.config.mqtt_topic,
             self.config.mqtt_broker,
             self.config.mqtt_port
         );
@@ -75,45 +83,46 @@ impl VisionModule {
             qos: self.config.qos,
         };
 
+        let handler = Arc::new(VisionHandler);
+
         mqtt_runner::spawn_mqtt_task("vision".to_string(), params, move |p| {
             let pool = pool.clone();
-            async move { Self::run(pool, p).await }
+            let handler = handler.clone();
+            async move { mqtt_runner::run_with_handler(p, pool, handler).await }
         });
 
         Ok(())
     }
+}
 
-    /// 运行 MQTT 事件循环（使用共享运行器）
-    async fn run(pool: PgPool, params: mqtt_runner::MqttParams) -> AppResult<()> {
-        let (_, mut eventloop) = mqtt_runner::connect_and_subscribe(&params).await?;
-        mqtt_runner::run_event_loop(&mut eventloop, "vision", move |publish| {
-            let topic = publish.topic.clone();
-            let payload = publish.payload.to_vec();
-            let pool = pool.clone();
-            tokio::spawn(async move {
-                if let Err(e) = Self::handle_message(&topic, &payload, &pool).await {
-                    log::error!("处理视觉检测消息失败 [{}]: {}", topic, e);
-                }
-            });
-        })
-        .await
+// ---------------------------------------------------------------------------
+// MQTT Handler Trait 实现
+// ---------------------------------------------------------------------------
+
+/// 视觉模块的 MQTT 消息处理器。
+///
+/// 无状态结构体，实现 `MqttMessageHandler` trait，
+/// 每条 Publish 消息在独立的 tokio task 中异步处理。
+struct VisionHandler;
+
+#[async_trait]
+impl mqtt_runner::MqttMessageHandler for VisionHandler {
+    fn module_name(&self) -> &str {
+        "vision"
     }
 
-    /// 处理单条MQTT消息
-    async fn handle_message(
-        topic: &str,
-        payload: &[u8],
-        pool: &PgPool,
-    ) -> AppResult<()> {
+    async fn handle(&self, publish: rumqttc::Publish, pool: &PgPool) -> AppResult<()> {
+        let topic = &publish.topic;
+        let payload = &publish.payload;
+        let data_service = DataService::new(pool.clone());
         let raw_repo = RawDataRepository::new(pool);
-        let data_repo = DataRepository::new(pool);
 
         // 归档原始数据
         let raw_id = raw_repo.archive_raw("vision_mqtt", payload, topic.to_string()).await.ok();
 
         // 解析主题提取设备ID: device/vision/{device_id}/detect
         let device_id_str = topic.split('/').nth(2)
-            .ok_or_else(|| crate::errors::AppError::ValidationError("无效的主题格式".into()))?;
+            .ok_or_else(|| AppError::validation("无效的主题格式"))?;
 
         // 解析JSON
         let detection = match parse_vision_detection(payload, device_id_str) {
@@ -122,8 +131,8 @@ impl VisionModule {
                 log::warn!("解析视觉检测数据失败: {}", e);
                 if let Some(id) = raw_id {
                     let _ = raw_repo.mark_status(
-                        id, 
-                        crate::core::entity::RawIngestStatus::FormatError, 
+                        id,
+                        crate::core::entity::RawIngestStatus::FormatError,
                         Some(&e.to_string())
                     ).await;
                 }
@@ -132,7 +141,16 @@ impl VisionModule {
         };
 
         // 解析或创建设备
-        let device_uuid = match resolve_or_create_device(pool, device_id_str).await {
+        let device_uuid = match crate::ingest::modules::resolve_or_create_device(
+            pool,
+            device_id_str,
+            "vision_camera",
+            Some(serde_json::json!({
+                "capabilities": ["fall_detection", "wander_detection"]
+            })),
+        )
+        .await
+        {
             Ok(id) => id,
             Err(e) => {
                 log::error!("解析视觉设备失败: {}", e);
@@ -143,9 +161,9 @@ impl VisionModule {
         // 生成数据点
         let points = create_vision_datapoints(detection, device_uuid);
 
-        // 存储
+        // 通过 DataService 存储
         if !points.is_empty() {
-            if let Err(e) = data_repo.insert_datapoints(&points).await {
+            if let Err(e) = store_data_points(&data_service, &points, &device_uuid).await {
                 log::error!("存储视觉数据失败: {}", e);
             } else {
                 log::debug!("视觉检测数据已存储: {} 条", points.len());
@@ -155,8 +173,8 @@ impl VisionModule {
         // 标记成功
         if let Some(id) = raw_id {
             let _ = raw_repo.mark_status(
-                id, 
-                crate::core::entity::RawIngestStatus::Ingested, 
+                id,
+                crate::core::entity::RawIngestStatus::Ingested,
                 None
             ).await;
         }
@@ -168,11 +186,11 @@ impl VisionModule {
 /// 解析视觉检测数据
 fn parse_vision_detection(payload: &[u8], device_id: &str) -> AppResult<VisionDetection> {
     let json: serde_json::Value = serde_json::from_slice(payload)
-        .map_err(|e| crate::errors::AppError::ValidationError(format!("JSON解析失败: {}", e)))?;
+        .map_err(|e| AppError::validation(format!("JSON解析失败: {}", e)))?;
 
     let event_type = json.get("event_type")
         .and_then(|v| v.as_str())
-        .ok_or_else(|| crate::errors::AppError::ValidationError("缺少event_type".into()))?;
+        .ok_or_else(|| AppError::validation("缺少event_type"))?;
 
     Ok(VisionDetection {
         device_id: device_id.to_string(),
@@ -228,7 +246,7 @@ fn create_vision_datapoints(detection: VisionDetection, device_id: Uuid) -> Vec<
         value_numeric: Some(detection.confidence as f64),
         value_text: Some(format!("{} detected at {}", detection.event_type, detection.location)),
         severity: Some(severity),
-        status: Some(crate::core::entity::EventStatus::Active),
+        status: Some(crate::ingest::types::EventStatus::Active),
         payload: event_payload,
         source: "vision_mqtt".to_string(),
     });
@@ -246,21 +264,13 @@ fn create_vision_datapoints(detection: VisionDetection, device_id: Uuid) -> Vec<
                 detection.event_type, 
                 detection.confidence * 100.0)),
             severity: Some(Severity::Warning),
-            status: Some(crate::core::entity::EventStatus::Active),
+            status: Some(crate::ingest::types::EventStatus::Active),
             payload: serde_json::json!({"original_event": detection.event_type}),
             source: "vision_mqtt".to_string(),
         });
     }
 
     points
-}
-
-/// 解析或创建设备 (委托给共享实现)
-async fn resolve_or_create_device(pool: &PgPool, device_id_str: &str) -> AppResult<Uuid> {
-    let metadata = Some(serde_json::json!({
-        "capabilities": ["fall_detection", "wander_detection"]
-    }));
-    crate::ingest::modules::resolve_or_create_device(pool, device_id_str, "vision_camera", metadata).await
 }
 
 #[cfg(test)]

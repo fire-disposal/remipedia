@@ -67,7 +67,7 @@ impl<'a> IngestRawService<'a> {
             "received_at",
             "processed_at",
             "created_at",
-        ]).map_err(|e| AppError::ValidationError(format!("CSV写入失败: {}", e)))?;
+        ]).map_err(|e| AppError::validation(format!("CSV写入失败: {}", e)))?;
 
         for record in records {
             wtr.write_record([
@@ -81,12 +81,12 @@ impl<'a> IngestRawService<'a> {
                 record.received_at.to_rfc3339(),
                 record.processed_at.map(|t| t.to_rfc3339()).unwrap_or_default(),
                 record.created_at.to_rfc3339(),
-            ]).map_err(|e| AppError::ValidationError(format!("CSV写入失败: {}", e)))?;
+            ]).map_err(|e| AppError::validation(format!("CSV写入失败: {}", e)))?;
         }
 
-        wtr.flush().map_err(|e| AppError::ValidationError(format!("CSV刷新失败: {}", e)))?;
+        wtr.flush().map_err(|e| AppError::validation(format!("CSV刷新失败: {}", e)))?;
 
-        Ok(wtr.into_inner().map_err(|e| AppError::ValidationError(format!("CSV获取数据失败: {}", e)))?)
+        Ok(wtr.into_inner().map_err(|e| AppError::validation(format!("CSV获取数据失败: {}", e)))?)
     }
 }
 

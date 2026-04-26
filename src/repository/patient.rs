@@ -22,7 +22,7 @@ impl<'a> PatientRepository<'a> {
         .fetch_one(self.pool)
         .await
         .map_err(|e| match e {
-            sqlx::Error::RowNotFound => AppError::NotFound(format!("患者: {}", id)),
+            sqlx::Error::RowNotFound => AppError::not_found(format!("患者: {}", id)),
             other => AppError::DatabaseError(other),
         })
     }
@@ -70,7 +70,7 @@ impl<'a> PatientRepository<'a> {
         .fetch_one(self.pool)
         .await
         .map_err(|e| match e {
-            sqlx::Error::RowNotFound => AppError::NotFound(format!("患者: {}", id)),
+            sqlx::Error::RowNotFound => AppError::not_found(format!("患者: {}", id)),
             other => AppError::DatabaseError(other),
         })
     }
@@ -124,7 +124,7 @@ impl<'a> PatientRepository<'a> {
             .map_err(AppError::DatabaseError)?;
 
         if result.rows_affected() == 0 {
-            return Err(AppError::NotFound(format!("患者: {}", id)));
+            return Err(AppError::not_found(format!("患者: {}", id)));
         }
 
         Ok(())

@@ -4,6 +4,7 @@ use rocket::State;
 use sqlx::PgPool;
 
 use crate::errors::AppResult;
+use crate::ingest::modules::ModuleRegistry;
 
 /// Favicon SVG
 #[get("/favicon.svg")]
@@ -79,6 +80,25 @@ pub async fn live() -> Json<serde_json::Value> {
     }))
 }
 
+/// Ingest 模块健康状态
+#[get("/ingest/modules")]
+pub async fn ingest_module_health(registry: &State<ModuleRegistry>) -> Json<serde_json::Value> {
+    let health = registry.health_check();
+    Json(serde_json::json!({
+        "modules": health,
+        "started_at": registry.started_at(),
+        "timestamp": chrono::Utc::now().to_rfc3339()
+    }))
+}
+
 pub fn routes() -> Vec<rocket::Route> {
-    rocket::routes![favicon_svg, favicon_ico, index, health, ready, live]
+    rocket::routes![
+        favicon_svg,
+        favicon_ico,
+        index,
+        health,
+        ready,
+        live,
+        ingest_module_health,
+    ]
 }

@@ -35,7 +35,7 @@ pub async fn create_user(
     req: Json<CreateUserRequest>,
 ) -> AppResult<(Status, Json<UserResponse>)> {
     user.check_system_role()?;
-    let service = UserService::new(pool);
+    let service = UserService::new(pool).with_actor(Some(user.id));
     let response = service.create(req.into_inner()).await?;
     Ok((Status::Created, Json(response)))
 }
@@ -63,7 +63,7 @@ pub async fn get_user(
     id: &str,
 ) -> AppResult<Json<UserResponse>> {
     user.check_system_role()?;
-    let id = Uuid::parse_str(id).map_err(|_| AppError::ValidationError("无效的用户 ID".into()))?;
+    let id = Uuid::parse_str(id).map_err(|_| AppError::validation("无效的用户 ID"))?;
     let service = UserService::new(pool);
     let response = service.get_by_id(&id).await?;
     Ok(Json(response))
@@ -94,8 +94,8 @@ pub async fn update_user(
     req: Json<UpdateUserRequest>,
 ) -> AppResult<Json<UserResponse>> {
     user.check_system_role()?;
-    let id = Uuid::parse_str(id).map_err(|_| AppError::ValidationError("无效的用户 ID".into()))?;
-    let service = UserService::new(pool);
+    let id = Uuid::parse_str(id).map_err(|_| AppError::validation("无效的用户 ID"))?;
+    let service = UserService::new(pool).with_actor(Some(user.id));
     let response = service.update(&id, req.into_inner()).await?;
     Ok(Json(response))
 }
@@ -123,11 +123,11 @@ pub async fn delete_user(
     id: &str,
 ) -> AppResult<Status> {
     user.check_system_role()?;
-    let id = Uuid::parse_str(id).map_err(|_| AppError::ValidationError("无效的用户 ID".into()))?;
+    let id = Uuid::parse_str(id).map_err(|_| AppError::validation("无效的用户 ID"))?;
     if user.id == id {
-        return Err(AppError::ValidationError("不允许删除当前管理员账号".into()));
+        return Err(AppError::validation("不允许删除当前管理员账号"));
     }
-    let service = UserService::new(pool);
+    let service = UserService::new(pool).with_actor(Some(user.id));
     service.delete(&id).await?;
     Ok(Status::NoContent)
 }

@@ -12,8 +12,11 @@ use crate::dto::response::{
 };
 use crate::errors::{AppError, AppResult};
 use crate::repository::{BindingRepository, DeviceRepository, PatientRepository};
+use crate::service::log_audit_success;
 
 pub struct PatientService<'a> {
+    pool: &'a PgPool,
+    actor_id: Option<Uuid>,
     patient_repo: PatientRepository<'a>,
     device_repo: DeviceRepository<'a>,
     binding_repo: BindingRepository<'a>,
@@ -22,10 +25,18 @@ pub struct PatientService<'a> {
 impl<'a> PatientService<'a> {
     pub fn new(pool: &'a PgPool) -> Self {
         Self {
+            pool,
+            actor_id: None,
             patient_repo: PatientRepository::new(pool),
             device_repo: DeviceRepository::new(pool),
             binding_repo: BindingRepository::new(pool),
         }
+    }
+
+    /// 设置操作者 ID（审计日志用）
+    pub fn with_actor(mut self, actor_id: Option<Uuid>) -> Self {
+        self.actor_id = actor_id;
+        self
     }
 
     /// 创建患者
@@ -38,7 +49,7 @@ impl<'a> PatientService<'a> {
                 .await?
                 .is_some()
             {
-                return Err(AppError::ValidationError("外部 ID 已存在".into()));
+                return Err(AppError::validation("外部 ID 已存在"));
             }
         }
 
@@ -59,6 +70,16 @@ impl<'a> PatientService<'a> {
             "患者创建成功: patient_id={}, name={}",
             patient.id, patient.name
         );
+
+        log_audit_success(
+            self.pool,
+            self.actor_id,
+            "CREATE_PATIENT",
+            "Patient",
+            Some(patient.id.to_string()),
+            None,
+        )
+        .await?;
 
         // 返回完整信息
         self.get_by_id(&patient.id).await
@@ -93,6 +114,16 @@ impl<'a> PatientService<'a> {
             .await?;
 
         info!("患者更新成功: patient_id={}", id);
+
+        log_audit_success(
+            self.pool,
+            self.actor_id,
+            "UPDATE_PATIENT",
+            "Patient",
+            Some(id.to_string()),
+            None,
+        )
+        .await?;
 
         Ok(patient)
     }
@@ -129,6 +160,17 @@ impl<'a> PatientService<'a> {
     pub async fn delete(&self, id: &Uuid) -> AppResult<()> {
         self.patient_repo.delete(id).await?;
         info!("患者删除成功: patient_id={}", id);
+
+        log_audit_success(
+            self.pool,
+            self.actor_id,
+            "DELETE_PATIENT",
+            "Patient",
+            Some(id.to_string()),
+            None,
+        )
+        .await?;
+
         Ok(())
     }
 
@@ -205,6 +247,16 @@ impl<'a> PatientService<'a> {
 
         info!("患者档案创建成功: patient_id={}", patient_id);
 
+        log_audit_success(
+            self.pool,
+            self.actor_id,
+            "UPSERT_PATIENT_PROFILE",
+            "PatientProfile",
+            Some(patient_id.to_string()),
+            None,
+        )
+        .await?;
+
         Ok(profile.into())
     }
 
@@ -222,6 +274,17 @@ impl<'a> PatientService<'a> {
         self.patient_repo.find_by_id(patient_id).await?;
         self.patient_repo.delete_profile(patient_id).await?;
         info!("患者档案删除成功: patient_id={}", patient_id);
+
+        log_audit_success(
+            self.pool,
+            self.actor_id,
+            "DELETE_PATIENT_PROFILE",
+            "PatientProfile",
+            Some(patient_id.to_string()),
+            None,
+        )
+        .await?;
+
         Ok(())
     }
 

@@ -3,10 +3,12 @@
 //! 独立模块：订阅MQTT主题，处理IMU惯性测量单元数据
 //! 包含：MQTT订阅 + JSON解析 + 运动分析
 
-use crate::core::entity::{DataPoint, DataCategory, Severity};
+use crate::ingest::types::{DataCategory, DataPoint, Severity};
 use crate::errors::{AppError, AppResult};
 use crate::ingest::modules::mqtt_runner;
-use crate::repository::{DataRepository, RawDataRepository};
+use crate::ingest::modules::store_data_points;
+use crate::repository::RawDataRepository;
+use crate::service::DataService;
 use rumqttc::{Event, Incoming};
 use sqlx::PgPool;
 use uuid::Uuid;
@@ -178,7 +180,7 @@ impl ImuModule {
                 Ok(_) => {}
                 Err(e) => {
                     log::error!("IMU模块MQTT错误: {}", e);
-                    return Err(AppError::ValidationError(format!("MQTT错误: {}", e)));
+                    return Err(AppError::validation(format!("MQTT错误: {}", e)));
                 }
             }
         }
@@ -192,15 +194,15 @@ impl ImuModule {
         state: &mut ImuState,
         config: &ImuConfig,
     ) -> AppResult<Vec<DataPoint>> {
+        let data_service = DataService::new(pool.clone());
         let raw_repo = RawDataRepository::new(pool);
-        let data_repo = DataRepository::new(pool);
 
         // 归档原始数据
         let raw_id = raw_repo.archive_raw("imu_mqtt", payload, topic.to_string()).await.ok();
 
         // 解析主题提取设备ID: device/imu/{device_id}/data
         let device_id_str = topic.split('/').nth(2)
-            .ok_or_else(|| crate::errors::AppError::ValidationError("无效的主题格式".into()))?;
+            .ok_or_else(|| AppError::validation("无效的主题格式"))?;
 
         // 解析JSON
         let imu_data = match parse_imu_data(payload, device_id_str) {
@@ -219,7 +221,17 @@ impl ImuModule {
         };
 
         // 解析或创建设备
-        let device_uuid = match resolve_or_create_device(pool, device_id_str).await {
+        let device_uuid = match crate::ingest::modules::resolve_or_create_device(
+            pool,
+            device_id_str,
+            "imu_sensor",
+            Some(serde_json::json!({
+                "capabilities": ["fall_detection", "activity_monitoring"],
+                "sensors": ["accelerometer", "gyroscope"]
+            })),
+        )
+        .await
+        {
             Ok(id) => id,
             Err(e) => {
                 log::error!("解析IMU设备失败: {}", e);
@@ -230,9 +242,9 @@ impl ImuModule {
         // 处理数据（跌倒检测等）
         let points = process_imu_data(imu_data, state, device_uuid, config);
 
-        // 存储
+        // 通过 DataService 存储
         if !points.is_empty() {
-            if let Err(e) = data_repo.insert_datapoints(&points).await {
+            if let Err(e) = store_data_points(&data_service, &points, &device_uuid).await {
                 log::error!("存储IMU数据失败: {}", e);
             }
         }
@@ -253,13 +265,13 @@ impl ImuModule {
 /// 解析IMU数据
 fn parse_imu_data(payload: &[u8], device_id: &str) -> AppResult<ImuData> {
     let json: serde_json::Value = serde_json::from_slice(payload)
-        .map_err(|e| crate::errors::AppError::ValidationError(format!("JSON解析失败: {}", e)))?;
+        .map_err(|e| AppError::validation(format!("JSON解析失败: {}", e)))?;
 
     let accel = json.get("accelerometer")
-        .ok_or_else(|| crate::errors::AppError::ValidationError("缺少accelerometer".into()))?;
+        .ok_or_else(|| AppError::validation("缺少accelerometer"))?;
 
     let gyro = json.get("gyroscope")
-        .ok_or_else(|| crate::errors::AppError::ValidationError("缺少gyroscope".into()))?;
+        .ok_or_else(|| AppError::validation("缺少gyroscope"))?;
 
     Ok(ImuData {
         device_id: device_id.to_string(),
@@ -309,7 +321,7 @@ fn process_imu_data(
         value_numeric: Some(accel_mag),
         value_text: None,
         severity: None,
-        status: data.battery.map(|_b| crate::core::entity::EventStatus::Active),
+        status: data.battery.map(|_b| crate::ingest::types::EventStatus::Active),
         payload: sensor_payload,
         source: "imu_mqtt".to_string(),
     });
@@ -331,7 +343,7 @@ fn process_imu_data(
             value_numeric: Some(accel_mag),
             value_text: Some(format!("检测到高加速度冲击: {:.2} m/s²", accel_mag)),
             severity: Some(Severity::Alert),
-            status: Some(crate::core::entity::EventStatus::Active),
+            status: Some(crate::ingest::types::EventStatus::Active),
             payload: serde_json::json!({"accel_magnitude": accel_mag}),
             source: "imu_mqtt".to_string(),
         });
@@ -356,7 +368,7 @@ fn process_imu_data(
                         value_numeric: Some(accel_mag),
                         value_text: Some("跌倒事件确认".to_string()),
                         severity: Some(Severity::Alert),
-                        status: Some(crate::core::entity::EventStatus::Active),
+                        status: Some(crate::ingest::types::EventStatus::Active),
                         payload: serde_json::json!({
                             "impact_accel": accel_mag,
                             "static_duration_sec": duration.num_seconds(),
@@ -381,7 +393,7 @@ fn process_imu_data(
                     value_numeric: Some(accel_mag),
                     value_text: Some("跌倒状态取消 - 检测到活动".to_string()),
                     severity: Some(Severity::Info),
-                    status: Some(crate::core::entity::EventStatus::Active),
+                    status: Some(crate::ingest::types::EventStatus::Active),
                     payload: serde_json::json!({"variance": variance}),
                     source: "imu_mqtt".to_string(),
                 });
@@ -402,7 +414,7 @@ fn process_imu_data(
                 value_numeric: Some(battery as f64),
                 value_text: Some(format!("IMU设备电量低: {}%", battery)),
                 severity: Some(Severity::Warning),
-                status: Some(crate::core::entity::EventStatus::Active),
+                status: Some(crate::ingest::types::EventStatus::Active),
                 payload: serde_json::json!({"battery": battery}),
                 source: "imu_mqtt".to_string(),
             });
@@ -411,15 +423,6 @@ fn process_imu_data(
 
     state.last_activity = Some(now);
     points
-}
-
-/// 解析或创建设备 (委托给共享实现)
-async fn resolve_or_create_device(pool: &PgPool, device_id_str: &str) -> AppResult<Uuid> {
-    let metadata = Some(serde_json::json!({
-        "capabilities": ["fall_detection", "activity_monitoring"],
-        "sensors": ["accelerometer", "gyroscope"]
-    }));
-    crate::ingest::modules::resolve_or_create_device(pool, device_id_str, "imu_sensor", metadata).await
 }
 
 #[cfg(test)]

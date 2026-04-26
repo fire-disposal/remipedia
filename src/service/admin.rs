@@ -5,10 +5,13 @@ use crate::dto::response::{
 };
 use crate::errors::{AppError, AppResult};
 use crate::repository::{AuditLogRepository, EnsureFound, RoleRepository};
+use crate::service::log_audit_success;
 use sqlx::PgPool;
 use uuid::Uuid;
 
 pub struct AdminService<'a> {
+    pool: &'a PgPool,
+    actor_id: Option<Uuid>,
     role_repo: RoleRepository<'a>,
     audit_log_repo: AuditLogRepository<'a>,
 }
@@ -16,9 +19,17 @@ pub struct AdminService<'a> {
 impl<'a> AdminService<'a> {
     pub fn new(pool: &'a PgPool) -> Self {
         Self {
+            pool,
+            actor_id: None,
             role_repo: RoleRepository::new(pool),
             audit_log_repo: AuditLogRepository::new(pool),
         }
+    }
+
+    /// 设置操作者 ID（审计日志用）
+    pub fn with_actor(mut self, actor_id: Option<Uuid>) -> Self {
+        self.actor_id = actor_id;
+        self
     }
 
     // ===== 角色管理 =====
@@ -39,16 +50,27 @@ impl<'a> AdminService<'a> {
         &self,
         name: String,
         description: Option<String>,
+        data_scope: Option<String>,
     ) -> AppResult<Role> {
         // 检查角色名是否已存在
         if let Some(_) = self.role_repo.find_by_name(&name).await? {
-            return Err(AppError::ValidationError("角色名称已存在".into()));
+            return Err(AppError::validation("角色名称已存在"));
         }
 
         let role = self
             .role_repo
-            .create(&NewRole { name, description })
+            .create(&NewRole { name, description, data_scope })
             .await?;
+
+        log_audit_success(
+            self.pool,
+            self.actor_id,
+            "CREATE_ROLE",
+            "Role",
+            Some(role.id.to_string()),
+            None,
+        )
+        .await?;
 
         Ok(role)
     }
@@ -58,28 +80,39 @@ impl<'a> AdminService<'a> {
         id: &Uuid,
         name: Option<String>,
         description: Option<String>,
+        data_scope: Option<String>,
     ) -> AppResult<Role> {
         // 检查角色是否存在
         let role = self.role_repo.find_by_id(id).await?.ensure_found("角色", id)?;
 
         // 检查是否是系统角色
         if role.is_system {
-            return Err(AppError::ValidationError("不能修改系统角色".into()));
+            return Err(AppError::validation("不能修改系统角色"));
         }
 
         // 如果更新名称，检查是否已存在
         if let Some(ref new_name) = name {
             if let Some(existing) = self.role_repo.find_by_name(new_name).await? {
                 if existing.id != *id {
-                    return Err(AppError::ValidationError("角色名称已存在".into()));
+                    return Err(AppError::validation("角色名称已存在"));
                 }
             }
         }
 
         let role = self
             .role_repo
-            .update(id, &UpdateRole { name, description })
+            .update(id, &UpdateRole { name, description, data_scope })
             .await?;
+
+        log_audit_success(
+            self.pool,
+            self.actor_id,
+            "UPDATE_ROLE",
+            "Role",
+            Some(id.to_string()),
+            None,
+        )
+        .await?;
 
         Ok(role)
     }
@@ -90,10 +123,21 @@ impl<'a> AdminService<'a> {
 
         // 检查是否是系统角色
         if role.is_system {
-            return Err(AppError::ValidationError("不能删除系统角色".into()));
+            return Err(AppError::validation("不能删除系统角色"));
         }
 
         self.role_repo.delete(id).await?;
+
+        log_audit_success(
+            self.pool,
+            self.actor_id,
+            "DELETE_ROLE",
+            "Role",
+            Some(id.to_string()),
+            None,
+        )
+        .await?;
+
         Ok(())
     }
 
@@ -126,9 +170,20 @@ impl<'a> AdminService<'a> {
 
         // 验证 module_code 是否有效
         Module::from_str(module_code)
-            .ok_or_else(|| AppError::ValidationError(format!("无效的模块代码: {}", module_code)))?;
+            .ok_or_else(|| AppError::validation(format!("无效的模块代码: {}", module_code)))?;
 
         self.role_repo.assign_module_code(role_id, module_code).await?;
+
+        log_audit_success(
+            self.pool,
+            self.actor_id,
+            "ASSIGN_MODULE",
+            "RoleModule",
+            Some(role_id.to_string()),
+            None,
+        )
+        .await?;
+
         Ok(())
     }
 
@@ -136,6 +191,17 @@ impl<'a> AdminService<'a> {
         self.role_repo.find_by_id(role_id).await?.ensure_found("角色", role_id)?;
 
         self.role_repo.revoke_module_code(role_id, module_code).await?;
+
+        log_audit_success(
+            self.pool,
+            self.actor_id,
+            "REVOKE_MODULE",
+            "RoleModule",
+            Some(role_id.to_string()),
+            None,
+        )
+        .await?;
+
         Ok(())
     }
 
@@ -145,10 +211,21 @@ impl<'a> AdminService<'a> {
         // 验证所有 module_code
         for code in module_codes {
             Module::from_str(code)
-                .ok_or_else(|| AppError::ValidationError(format!("无效的模块代码: {}", code)))?;
+                .ok_or_else(|| AppError::validation(format!("无效的模块代码: {}", code)))?;
         }
 
         self.role_repo.batch_assign_module_codes(role_id, module_codes).await?;
+
+        log_audit_success(
+            self.pool,
+            self.actor_id,
+            "BATCH_ASSIGN_MODULES",
+            "RoleModule",
+            Some(role_id.to_string()),
+            None,
+        )
+        .await?;
+
         Ok(())
     }
 
@@ -156,6 +233,17 @@ impl<'a> AdminService<'a> {
         self.role_repo.find_by_id(role_id).await?.ensure_found("角色", role_id)?;
 
         self.role_repo.batch_revoke_module_codes(role_id, module_codes).await?;
+
+        log_audit_success(
+            self.pool,
+            self.actor_id,
+            "BATCH_REVOKE_MODULES",
+            "RoleModule",
+            Some(role_id.to_string()),
+            None,
+        )
+        .await?;
+
         Ok(())
     }
 
@@ -165,10 +253,21 @@ impl<'a> AdminService<'a> {
         // 验证所有 module_code
         for code in module_codes {
             Module::from_str(code)
-                .ok_or_else(|| AppError::ValidationError(format!("无效的模块代码: {}", code)))?;
+                .ok_or_else(|| AppError::validation(format!("无效的模块代码: {}", code)))?;
         }
 
         self.role_repo.set_role_module_codes(role_id, module_codes).await?;
+
+        log_audit_success(
+            self.pool,
+            self.actor_id,
+            "SET_ROLE_MODULES",
+            "RoleModule",
+            Some(role_id.to_string()),
+            None,
+        )
+        .await?;
+
         Ok(())
     }
 

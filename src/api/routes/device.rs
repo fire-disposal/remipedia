@@ -50,7 +50,7 @@ pub async fn register_device(
     _user: AuthenticatedUser,
     req: Json<RegisterDeviceRequest>,
 ) -> AppResult<(Status, Json<DeviceResponse>)> {
-    let service = DeviceService::new(pool);
+    let service = DeviceService::new(pool).with_actor(Some(_user.id));
     let response = service.register(req.into_inner()).await?;
     Ok((Status::Created, Json(response)))
 }
@@ -77,7 +77,7 @@ pub async fn get_device(
     _user: AuthenticatedUser,
     id: &str,
 ) -> AppResult<Json<DeviceResponse>> {
-    let id = Uuid::parse_str(id).map_err(|_| AppError::ValidationError("无效的设备 ID".into()))?;
+    let id = Uuid::parse_str(id).map_err(|_| AppError::validation("无效的设备 ID"))?;
     let service = DeviceService::new(pool);
     let response = service.get_by_id(&id).await?;
     Ok(Json(response))
@@ -107,8 +107,8 @@ pub async fn update_device(
     id: &str,
     req: Json<UpdateDeviceRequest>,
 ) -> AppResult<Json<DeviceResponse>> {
-    let id = Uuid::parse_str(id).map_err(|_| AppError::ValidationError("无效的设备 ID".into()))?;
-    let service = DeviceService::new(pool);
+    let id = Uuid::parse_str(id).map_err(|_| AppError::validation("无效的设备 ID"))?;
+    let service = DeviceService::new(pool).with_actor(Some(_user.id));
     let response = service.update(&id, req.into_inner()).await?;
     Ok(Json(response))
 }
@@ -135,8 +135,8 @@ pub async fn delete_device(
     _user: AuthenticatedUser,
     id: &str,
 ) -> AppResult<Status> {
-    let id = Uuid::parse_str(id).map_err(|_| AppError::ValidationError("无效的设备 ID".into()))?;
-    let service = DeviceService::new(pool);
+    let id = Uuid::parse_str(id).map_err(|_| AppError::validation("无效的设备 ID"))?;
+    let service = DeviceService::new(pool).with_actor(Some(_user.id));
     service.delete(&id).await?;
     Ok(Status::NoContent)
 }
@@ -241,7 +241,7 @@ pub async fn get_device_bindings(
     page: Option<u32>,
     page_size: Option<u32>,
 ) -> AppResult<Json<BindingListResponse>> {
-    let id = Uuid::parse_str(id).map_err(|_| AppError::ValidationError("无效的设备 ID".into()))?;
+    let id = Uuid::parse_str(id).map_err(|_| AppError::validation("无效的设备 ID"))?;
     let service = BindingService::new(pool);
     let response = service.get_device_binding_history(
         &id,

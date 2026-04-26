@@ -35,7 +35,7 @@ pub async fn get_binding(
     _user: AuthenticatedUser,
     id: &str,
 ) -> AppResult<Json<Binding>> {
-    let id = Uuid::parse_str(id).map_err(|_| AppError::ValidationError("无效的绑定 ID".into()))?;
+    let id = Uuid::parse_str(id).map_err(|_| AppError::validation("无效的绑定 ID"))?;
     let service = BindingService::new(pool);
     let response = service.get_by_id(&id).await?;
     Ok(Json(response))
@@ -107,7 +107,7 @@ pub async fn create_binding(
     _user: AuthenticatedUser,
     req: Json<CreateBindingRequest>,
 ) -> AppResult<(Status, Json<Binding>)> {
-    let service = BindingService::new(pool);
+    let service = BindingService::new(pool).with_actor(Some(_user.id));
     let response = service.bind(req.into_inner()).await?;
     Ok((Status::Created, Json(response)))
 }
@@ -134,8 +134,8 @@ pub async fn delete_binding(
     _user: AuthenticatedUser,
     id: &str,
 ) -> AppResult<Status> {
-    let id = Uuid::parse_str(id).map_err(|_| AppError::ValidationError("无效的绑定 ID".into()))?;
-    let service = BindingService::new(pool);
+    let id = Uuid::parse_str(id).map_err(|_| AppError::validation("无效的绑定 ID"))?;
+    let service = BindingService::new(pool).with_actor(Some(_user.id));
     service.unbind(&id).await?;
     Ok(Status::NoContent)
 }
@@ -164,8 +164,8 @@ pub async fn end_binding(
     id: &str,
     req: Json<EndBindingRequest>,
 ) -> AppResult<Json<Binding>> {
-    let id = Uuid::parse_str(id).map_err(|_| AppError::ValidationError("无效的绑定 ID".into()))?;
-    let service = BindingService::new(pool);
+    let id = Uuid::parse_str(id).map_err(|_| AppError::validation("无效的绑定 ID"))?;
+    let service = BindingService::new(pool).with_actor(Some(_user.id));
     let response = service.end_binding(&id, req.into_inner()).await?;
     Ok(Json(response))
 }
@@ -191,7 +191,7 @@ pub async fn switch_binding(
     _user: AuthenticatedUser,
     req: Json<SwitchBindingRequest>,
 ) -> AppResult<(Status, Json<Binding>)> {
-    let service = BindingService::new(pool);
+    let service = BindingService::new(pool).with_actor(Some(_user.id));
     let response = service.switch_binding(req.into_inner()).await?;
     Ok((Status::Created, Json(response)))
 }

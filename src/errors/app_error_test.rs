@@ -113,4 +113,26 @@ mod tests {
         assert!(debug_str.contains("ValidationError"));
         assert!(debug_str.contains("test error"));
     }
+
+    /// 测试辅助构造方法
+    #[test]
+    fn test_error_helper_methods() {
+        assert!(matches!(AppError::not_found("用户"), AppError::NotFound(_)));
+        assert!(matches!(AppError::validation("无效参数"), AppError::ValidationError(_)));
+        assert!(matches!(AppError::unauthorized("过期"), AppError::Unauthorized(_)));
+        assert!(matches!(AppError::conflict("重复"), AppError::Conflict(_)));
+        assert!(matches!(AppError::internal("失败"), AppError::InternalError(_)));
+
+        let msg = format!("{}", AppError::not_found("用户: 123"));
+        assert!(msg.contains("用户: 123"), "消息应包含具体内容: {}", msg);
+    }
+
+    /// 测试 From<anyhow::Error>
+    #[test]
+    fn test_anyhow_error_conversion() {
+        let any_err = anyhow::anyhow!("自定义错误");
+        let app_err: AppError = any_err.into();
+        assert!(matches!(app_err, AppError::InternalError(_)));
+        assert!(format!("{}", app_err).contains("自定义错误"));
+    }
 }

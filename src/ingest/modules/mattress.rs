@@ -49,6 +49,7 @@ impl Default for MattressConfig {
 
 /// 床垫数据包 (Msgpack解码后)
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 struct MattressPacket {
     serial_number: String,
     manufacturer: String,
@@ -67,9 +68,12 @@ struct MattressPacket {
 /// 床垫状态
 #[derive(Debug, Default)]
 struct MattressState {
+    #[allow(dead_code)]
     last_status: Option<u8>,
+    #[allow(dead_code)]
     last_position: Option<u8>,
     last_heart_rate: Option<u8>,
+    #[allow(dead_code)]
     last_breath_rate: Option<u8>,
     on_bed_since: Option<chrono::DateTime<chrono::Utc>>,
     last_event_time: Option<chrono::DateTime<chrono::Utc>>,

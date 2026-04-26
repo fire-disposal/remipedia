@@ -42,6 +42,7 @@ impl Default for ImuConfig {
 /// IMU传感器数据
 #[derive(Debug, Clone)]
 struct ImuData {
+    #[allow(dead_code)]
     device_id: String,
     timestamp: i64,
     /// 加速度 (m/s²)
@@ -58,7 +59,7 @@ struct ImuData {
 
 /// IMU状态（用于跌倒检测）
 #[derive(Debug, Default)]
-struct ImuState {
+pub(crate) struct ImuState {
     /// 历史加速度值（用于计算方差）
     accel_history: Vec<f64>,
     /// 上次活动时间
@@ -184,7 +185,7 @@ impl ImuModule {
     }
 
     /// 处理单条MQTT消息
-    pub async fn handle_message(
+    pub(crate) async fn handle_message(
         topic: &str,
         payload: &[u8],
         pool: &PgPool,
@@ -308,7 +309,7 @@ fn process_imu_data(
         value_numeric: Some(accel_mag),
         value_text: None,
         severity: None,
-        status: data.battery.map(|b| crate::core::entity::EventStatus::Active),
+        status: data.battery.map(|_b| crate::core::entity::EventStatus::Active),
         payload: sensor_payload,
         source: "imu_mqtt".to_string(),
     });

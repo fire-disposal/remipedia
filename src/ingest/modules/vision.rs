@@ -36,6 +36,7 @@ impl Default for VisionConfig {
 /// 视觉检测结果
 #[derive(Debug, Clone)]
 struct VisionDetection {
+    #[allow(dead_code)]
     device_id: String,
     timestamp: i64,
     event_type: String,      // "fall", "wander", "visitor", etc.

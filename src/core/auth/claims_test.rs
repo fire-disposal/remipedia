@@ -24,18 +24,19 @@ mod tests {
         assert!(!SystemRole::is_super_admin(&normal_id));
     }
 
-    /// 测试 JWT Claims 生成 - 包含 subjects
+    /// 测试 JWT Claims 生成 - 包含模块权限
     #[test]
-    fn test_claims_generation_with_subjects() {
+    fn test_claims_generation_with_modules() {
         let user_id = Uuid::now_v7();
         let role_id = Uuid::now_v7();
-        let subjects = vec![Uuid::now_v7(), Uuid::now_v7()];
+        let modules = vec!["dashboard".to_string(), "patients".to_string()];
         let expires_at = Utc::now() + chrono::Duration::hours(1);
 
         let claims = Claims::new_access(
             &user_id,
             &role_id,
-            subjects.clone(),
+            false,
+            modules.clone(),
             expires_at,
             "test_issuer",
         );
@@ -45,22 +46,41 @@ mod tests {
         assert_eq!(claims.role_id, role_id.to_string());
         assert_eq!(claims.iss, "test_issuer");
         assert_eq!(claims.token_type, "access");
+        assert!(!claims.is_system_role);
 
-        // 验证 subjects
-        assert!(claims.subjects.is_some());
-
-        // 验证 accessible_subjects 方法
-        let accessible = claims.accessible_subjects();
-        assert_eq!(accessible.len(), 2);
-
-        // 验证 subjects 内容
-        let claim_subjects = claims.subjects.clone().unwrap();
-        assert_eq!(claim_subjects.len(), 2);
+        // 验证模块权限
+        assert_eq!(claims.modules.len(), 2);
+        assert!(claims.can_access_module("dashboard"));
+        assert!(claims.can_access_module("patients"));
+        assert!(!claims.can_access_module("devices"));
     }
 
-    /// 测试 JWT Claims 生成 - 空 subjects
+    /// 测试系统角色（通配权限）
     #[test]
-    fn test_claims_generation_without_subjects() {
+    fn test_system_role_claims() {
+        let user_id = Uuid::now_v7();
+        let role_id = SystemRole::SUPER_ADMIN_ID;
+        let expires_at = Utc::now() + chrono::Duration::hours(1);
+
+        let claims = Claims::new_access(
+            &user_id,
+            &role_id,
+            true,   // is_system_role
+            vec![], // 空模块列表，系统角色不需要
+            expires_at,
+            "test_issuer",
+        );
+
+        // 系统角色应拥有所有模块权限
+        assert!(claims.is_system_role);
+        assert!(claims.can_access_module("dashboard"));
+        assert!(claims.can_access_module("users"));
+        assert!(claims.can_access_module("nonexistent"));
+    }
+
+    /// 测试角色无模块权限
+    #[test]
+    fn test_claims_without_modules() {
         let user_id = Uuid::now_v7();
         let role_id = Uuid::now_v7();
         let expires_at = Utc::now() + chrono::Duration::hours(1);
@@ -68,60 +88,16 @@ mod tests {
         let claims = Claims::new_access(
             &user_id,
             &role_id,
-            vec![], // 空 subjects
+            false,
+            vec![],
             expires_at,
             "test_issuer",
         );
 
-        // 空 subjects 应该为 None
-        assert!(claims.subjects.is_none());
-        assert!(claims.accessible_subjects().is_empty());
-    }
-
-    /// 测试资源访问检查
-    #[test]
-    fn test_can_access_subject() {
-        let user_id = Uuid::now_v7();
-        let role_id = Uuid::now_v7();
-        let subject1 = Uuid::now_v7();
-        let subject2 = Uuid::now_v7();
-        let expires_at = Utc::now() + chrono::Duration::hours(1);
-
-        let claims = Claims::new_access(
-            &user_id,
-            &role_id,
-            vec![subject1, subject2],
-            expires_at,
-            "test_issuer",
-        );
-
-        // 应该能访问列表中的 subject
-        assert!(claims.can_access_subject(&subject1));
-        assert!(claims.can_access_subject(&subject2));
-
-        // 不应该能访问不在列表中的 subject
-        let other_subject = Uuid::now_v7();
-        assert!(!claims.can_access_subject(&other_subject));
-    }
-
-    /// 测试资源访问检查 - 无限制时
-    #[test]
-    fn test_can_access_subject_no_restriction() {
-        let user_id = Uuid::now_v7();
-        let role_id = Uuid::now_v7();
-        let expires_at = Utc::now() + chrono::Duration::hours(1);
-
-        let claims = Claims::new_access(
-            &user_id,
-            &role_id,
-            vec![], // 空列表
-            expires_at,
-            "test_issuer",
-        );
-
-        // subjects 为 None 时应该允许访问所有
-        let any_subject = Uuid::now_v7();
-        assert!(claims.can_access_subject(&any_subject));
+        // 非系统角色且无模块时，所有模块都应拒绝
+        assert!(!claims.is_system_role);
+        assert!(claims.accessible_modules().is_empty());
+        assert!(!claims.can_access_module("dashboard"));
     }
 
     /// 测试 refresh token claims
@@ -134,7 +110,8 @@ mod tests {
 
         assert_eq!(claims.sub, user_id.to_string());
         assert!(claims.role_id.is_empty());
-        assert!(claims.subjects.is_none());
+        assert!(!claims.is_system_role);
+        assert!(claims.modules.is_empty());
         assert_eq!(claims.token_type, "refresh");
         assert!(claims.is_refresh_token());
         assert!(!claims.is_access_token());
@@ -148,7 +125,7 @@ mod tests {
         let expires_at = Utc::now() + chrono::Duration::hours(1);
 
         let access_claims =
-            Claims::new_access(&user_id, &role_id, vec![], expires_at, "test_issuer");
+            Claims::new_access(&user_id, &role_id, false, vec![], expires_at, "test_issuer");
 
         assert!(access_claims.is_access_token());
         assert!(!access_claims.is_refresh_token());

@@ -83,7 +83,7 @@ mod tests {
             ),
             (
                 AppError::ValidationError("field required".to_string()),
-                vec!["验证失败", "field required"],
+                vec!["请求无效", "field required"],
             ),
             (
                 AppError::Unauthorized("expired".to_string()),

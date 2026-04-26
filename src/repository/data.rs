@@ -1,4 +1,4 @@
-use sqlx::PgPool;
+use sqlx::{PgPool, QueryBuilder};
 use uuid::Uuid;
 
 use crate::core::entity::{DataPoint, DataQuery, Datasheet};
@@ -21,9 +21,9 @@ impl<'a> DataRepository<'a> {
                 time, device_id, patient_id, data_type, data_category,
                 value_numeric, value_text, severity, status, payload, source
             ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
-            RETURNING 
-                time, device_id, patient_id, data_type, data_category,
-                value_numeric, value_text, severity, status, payload, source, ingested_at"#,
+            RETURNING
+                id, time, device_id, patient_id, data_type, data_category,
+                value_numeric, value_text, severity, status, payload, source, ingested_at, updated_at"#,
         )
         .bind(data.time)
         .bind(data.device_id)
@@ -43,7 +43,7 @@ impl<'a> DataRepository<'a> {
         Ok(result)
     }
 
-    /// 批量插入数据点（单事务批量插入，性能优化）
+    /// 批量插入数据点（使用 QueryBuilder VALUES 单语句批量插入，替代逐行循环事务）
     pub async fn insert_datapoints(
         &self,
         data_points: &[DataPoint],
@@ -52,39 +52,31 @@ impl<'a> DataRepository<'a> {
             return Ok(Vec::new());
         }
 
-        let mut tx = self.pool.begin().await.map_err(AppError::DatabaseError)?;
+        let mut query_builder = QueryBuilder::new(
+            "INSERT INTO datasheet (time, device_id, patient_id, data_type, data_category, value_numeric, value_text, severity, status, payload, source) "
+        );
 
-        let mut results = Vec::with_capacity(data_points.len());
+        query_builder.push_values(data_points, |mut b, dp| {
+            b.push_bind(dp.time)
+             .push_bind(dp.device_id)
+             .push_bind(dp.patient_id)
+             .push_bind(&dp.data_type)
+             .push_bind(dp.data_category.to_string())
+             .push_bind(dp.value_numeric)
+             .push_bind(&dp.value_text)
+             .push_bind(dp.severity.as_ref().map(|s| s.to_string()))
+             .push_bind(dp.status.as_ref().map(|s| s.to_string()))
+             .push_bind(&dp.payload)
+             .push_bind(&dp.source);
+        });
 
-        for dp in data_points {
-            let result = sqlx::query_as::<_, Datasheet>(
-                r#"INSERT INTO datasheet (
-                    time, device_id, patient_id, data_type, data_category,
-                    value_numeric, value_text, severity, status, payload, source
-                ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
-                RETURNING 
-                    time, device_id, patient_id, data_type, data_category,
-                    value_numeric, value_text, severity, status, payload, source, ingested_at"#,
-            )
-            .bind(dp.time)
-            .bind(dp.device_id)
-            .bind(dp.patient_id)
-            .bind(&dp.data_type)
-            .bind(dp.data_category.to_string())
-            .bind(dp.value_numeric)
-            .bind(&dp.value_text)
-            .bind(dp.severity.as_ref().map(|s| s.to_string()))
-            .bind(dp.status.as_ref().map(|s| s.to_string()))
-            .bind(&dp.payload)
-            .bind(&dp.source)
-            .fetch_one(&mut *tx)
+        query_builder.push(" RETURNING id, time, device_id, patient_id, data_type, data_category, value_numeric, value_text, severity, status, payload, source, ingested_at, updated_at");
+
+        let results = query_builder
+            .build_query_as::<Datasheet>()
+            .fetch_all(self.pool)
             .await
             .map_err(AppError::DatabaseError)?;
-
-            results.push(result);
-        }
-
-        tx.commit().await.map_err(AppError::DatabaseError)?;
 
         Ok(results)
     }
@@ -96,9 +88,9 @@ impl<'a> DataRepository<'a> {
         let offset = ((query.page.saturating_sub(1)) * query.page_size) as i64;
 
         let data = sqlx::query_as::<_, Datasheet>(
-            r#"SELECT 
-                time, device_id, patient_id, data_type, data_category,
-                value_numeric, value_text, severity, status, payload, source, ingested_at
+            r#"SELECT
+                id, time, device_id, patient_id, data_type, data_category,
+                value_numeric, value_text, severity, status, payload, source, ingested_at, updated_at
             FROM datasheet
             WHERE ($1::uuid IS NULL OR patient_id = $1)
               AND ($2::uuid IS NULL OR device_id = $2)
@@ -164,9 +156,9 @@ impl<'a> DataRepository<'a> {
         limit: i64,
     ) -> AppResult<Vec<Datasheet>> {
         let data = sqlx::query_as::<_, Datasheet>(
-            r#"SELECT 
-                time, device_id, patient_id, data_type, data_category,
-                value_numeric, value_text, severity, status, payload, source, ingested_at
+            r#"SELECT
+                id, time, device_id, patient_id, data_type, data_category,
+                value_numeric, value_text, severity, status, payload, source, ingested_at, updated_at
             FROM datasheet
             WHERE data_category = 'event'
               AND status = 'active'
@@ -198,9 +190,9 @@ impl<'a> DataRepository<'a> {
         limit: i64,
     ) -> AppResult<Vec<Datasheet>> {
         let data = sqlx::query_as::<_, Datasheet>(
-            r#"SELECT 
-                time, device_id, patient_id, data_type, data_category,
-                value_numeric, value_text, severity, status, payload, source, ingested_at
+            r#"SELECT
+                id, time, device_id, patient_id, data_type, data_category,
+                value_numeric, value_text, severity, status, payload, source, ingested_at, updated_at
             FROM datasheet
             WHERE patient_id = $1 
               AND ($2::text IS NULL OR data_type = $2)
@@ -225,15 +217,15 @@ impl<'a> DataRepository<'a> {
         device_id: Option<&Uuid>,
     ) -> AppResult<Datasheet> {
         let result = sqlx::query_as::<_, Datasheet>(
-            r#"UPDATE datasheet 
-            SET status = 'acknowledged'
-            WHERE patient_id = $1 
+            r#"UPDATE datasheet
+            SET status = 'acknowledged', updated_at = NOW()
+            WHERE patient_id = $1
               AND time = $2
               AND ($3::uuid IS NULL OR device_id = $3)
               AND data_category = 'event'
-            RETURNING 
-                time, device_id, patient_id, data_type, data_category,
-                value_numeric, value_text, severity, status, payload, source, ingested_at"#,
+            RETURNING
+                id, time, device_id, patient_id, data_type, data_category,
+                value_numeric, value_text, severity, status, payload, source, ingested_at, updated_at"#,
         )
         .bind(patient_id)
         .bind(time)
@@ -253,15 +245,15 @@ impl<'a> DataRepository<'a> {
         device_id: Option<&Uuid>,
     ) -> AppResult<Datasheet> {
         let result = sqlx::query_as::<_, Datasheet>(
-            r#"UPDATE datasheet 
-            SET status = 'resolved'
-            WHERE patient_id = $1 
+            r#"UPDATE datasheet
+            SET status = 'resolved', updated_at = NOW()
+            WHERE patient_id = $1
               AND time = $2
               AND ($3::uuid IS NULL OR device_id = $3)
               AND data_category = 'event'
-            RETURNING 
-                time, device_id, patient_id, data_type, data_category,
-                value_numeric, value_text, severity, status, payload, source, ingested_at"#,
+            RETURNING
+                id, time, device_id, patient_id, data_type, data_category,
+                value_numeric, value_text, severity, status, payload, source, ingested_at, updated_at"#,
         )
         .bind(patient_id)
         .bind(time)

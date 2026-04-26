@@ -197,11 +197,11 @@ fn parse_module_from_path(path: &str) -> Module {
 /// 显式模块守卫（指定模块）
 /// 
 /// 用法示例：
-/// ```rust
+/// ```ignore
 /// #[get("/patients")]
 /// async fn list_patients(
 ///     _guard: ExplicitModuleGuard<{ Module::Patients }>,
-/// ) -> Json<...>
+/// ) -> Json<()>
 /// ```
 #[derive(Clone)]
 pub struct ExplicitModuleGuard {

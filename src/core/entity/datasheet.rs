@@ -103,18 +103,20 @@ impl std::str::FromStr for EventStatus {
 /// 统一数据实体（指标 + 事件），同时作为API响应体
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow, ToSchema)]
 pub struct Datasheet {
+    pub id: Uuid,
     pub time: DateTime<Utc>,
-    pub device_id: Option<Uuid>,  // 改为可选
+    pub device_id: Option<Uuid>,
     pub patient_id: Option<Uuid>, // 患者ID（从绑定自动填充）
     pub data_type: String,
-    pub data_category: String,                        // metric/event
-    pub value_numeric: Option<f64>, // 数值
-    pub value_text: Option<String>,                   // 文本值
-    pub severity: Option<String>,                     // info/warning/alert
-    pub status: Option<String>,                       // active/acknowledged/resolved
-    pub payload: serde_json::Value,                   // 原始数据
+    pub data_category: String,             // metric/event
+    pub value_numeric: Option<f64>,        // 数值
+    pub value_text: Option<String>,        // 文本值
+    pub severity: Option<String>,          // info/warning/alert
+    pub status: Option<String>,            // active/acknowledged/resolved
+    pub payload: serde_json::Value,        // 原始数据
     pub source: String,
     pub ingested_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
 }
 
 impl Datasheet {

@@ -37,26 +37,6 @@ CREATE INDEX idx_roles_name ON roles(name);
 CREATE TRIGGER update_roles_updated_at BEFORE UPDATE ON roles
     FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
--- 细粒度权限表（历史保留，现已降级为模块级）
-CREATE TABLE permissions (
-    id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    resource        TEXT NOT NULL,
-    action          TEXT NOT NULL,
-    description     TEXT,
-    created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    CONSTRAINT uq_permission_resource_action UNIQUE (resource, action)
-);
-CREATE INDEX idx_permissions_resource ON permissions(resource);
-
-CREATE TABLE role_permissions (
-    role_id         UUID NOT NULL REFERENCES roles(id) ON DELETE CASCADE,
-    permission_id   UUID NOT NULL REFERENCES permissions(id) ON DELETE CASCADE,
-    created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    PRIMARY KEY (role_id, permission_id)
-);
-CREATE INDEX idx_role_permissions_role ON role_permissions(role_id);
-CREATE INDEX idx_role_permissions_perm ON role_permissions(permission_id);
-
 -- 模块表（当前使用的权限粒度）
 CREATE TABLE modules (
     id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -265,52 +245,33 @@ CREATE INDEX idx_ingest_raw_serial_received_at ON ingest_raw_data(serial_number,
 CREATE TRIGGER update_ingest_raw_updated_at BEFORE UPDATE ON ingest_raw_data
     FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
--- 统一时间序列数据表
+-- 统一时间序列数据表（支持指标与事件）
 CREATE TABLE datasheet (
+    id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     time            TIMESTAMPTZ NOT NULL,
     device_id       UUID NOT NULL REFERENCES device(id) ON DELETE CASCADE,
-    subject_id      UUID REFERENCES patient(id) ON DELETE SET NULL,
     patient_id      UUID REFERENCES patient(id) ON DELETE SET NULL,
     data_type       TEXT NOT NULL,
     data_category   TEXT NOT NULL DEFAULT 'metric',
     payload         JSONB NOT NULL,
-    value_numeric   DECIMAL(10,4),
+    value_numeric   DOUBLE PRECISION,
     value_text      TEXT,
     severity        TEXT,
     status          TEXT DEFAULT NULL,
     source          TEXT NOT NULL DEFAULT 'mqtt',
     ingested_at     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    
-    PRIMARY KEY (time, device_id),
+    updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+
+    CONSTRAINT uq_datasheet_time_device UNIQUE (time, device_id),
     CONSTRAINT chk_data_category CHECK (data_category IN ('metric', 'event')),
     CONSTRAINT chk_severity CHECK (severity IS NULL OR severity IN ('info', 'warning', 'alert')),
     CONSTRAINT chk_status CHECK (status IS NULL OR status IN ('active', 'acknowledged', 'resolved'))
 );
 
 CREATE INDEX idx_datasheet_device_time ON datasheet(device_id, time DESC);
-CREATE INDEX idx_datasheet_subject_time ON datasheet(subject_id, time DESC);
 CREATE INDEX idx_datasheet_patient_time ON datasheet(patient_id, time DESC) WHERE patient_id IS NOT NULL;
-CREATE INDEX idx_datasheet_type_time ON datasheet(data_type, time DESC);
 CREATE INDEX idx_datasheet_events ON datasheet(patient_id, time DESC) WHERE data_category = 'event';
-CREATE INDEX idx_datasheet_severity ON datasheet(severity) WHERE severity IS NOT NULL;
-CREATE INDEX idx_datasheet_status ON datasheet(status) WHERE status IS NOT NULL;
-CREATE INDEX idx_datasheet_active_alerts ON datasheet(patient_id, time DESC) WHERE data_category = 'event' AND status = 'active';
-
-CREATE OR REPLACE FUNCTION auto_fill_patient_id()
-RETURNS TRIGGER AS }
-BEGIN
-    IF NEW.patient_id IS NULL AND NEW.device_id IS NOT NULL THEN
-        SELECT patient_id INTO NEW.patient_id FROM binding
-        WHERE device_id = NEW.device_id AND ended_at IS NULL
-        ORDER BY started_at DESC LIMIT 1;
-    END IF;
-    RETURN NEW;
-END;
-} LANGUAGE plpgsql;
-
-CREATE TRIGGER trg_auto_fill_patient BEFORE INSERT ON datasheet
-    FOR EACH ROW EXECUTE FUNCTION auto_fill_patient_id();
-
+CREATE INDEX idx_datasheet_active_alerts ON datasheet(patient_id, severity, time DESC) WHERE data_category = 'event' AND status = 'active';
 
 -- ============================================
 -- 6. 视图定义

@@ -25,12 +25,28 @@ impl<'a> DataService<'a> {
     }
 
     /// 数据入库（使用新的 DataPoint）
+    /// 当 patient_id 为空但 device_id 有时，自动从绑定表填充
     pub async fn ingest(&self,
         device_id: Option<Uuid>,
         patient_id: Option<Uuid>,
         data_type: String,
         payload: serde_json::Value,
     ) -> AppResult<DataReportResponse> {
+        // 自动从设备绑定填充 patient_id（替代原 PG 触发器 auto_fill_patient_id）
+        let patient_id = match patient_id {
+            Some(id) => Some(id),
+            None => {
+                if let Some(did) = device_id {
+                    self.binding_repo
+                        .find_active_by_device(&did)
+                        .await?
+                        .map(|b| b.patient_id)
+                } else {
+                    None
+                }
+            }
+        };
+
         let datapoint = DataPoint {
             time: Utc::now(),
             device_id,

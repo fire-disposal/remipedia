@@ -29,9 +29,11 @@ uuid = { version = "1", features = ["v4", "v7", "serde"] }
 # 配置
 config = "0.14"
 
-# 日志
+# 日志 — tracing 替换 env_logger
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+tracing-log = "0.2"
 log = "0.4"
-env_logger = "0.11"
 
 # 错误处理
 thiserror = "2"

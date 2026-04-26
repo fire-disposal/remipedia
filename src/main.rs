@@ -99,10 +99,20 @@ impl Fairing for Cors {
 }
 
 fn init_logging() {
-    env_logger::Builder::from_env("RUST_LOG")
-        .filter_module("remipedia", log::LevelFilter::Debug)
-        .filter_module("sqlx", log::LevelFilter::Warn)
-        .filter_module("rocket", log::LevelFilter::Info)
+    // 桥接 log crate → tracing，使现有 log::info!/warn! 调用继续工作
+    tracing_log::LogTracer::init().ok();
+
+    tracing_subscriber::fmt()
+        .with_env_filter(
+            tracing_subscriber::EnvFilter::builder()
+                .with_default_directive(tracing_subscriber::filter::LevelFilter::INFO.into())
+                .with_env_var("RUST_LOG")
+                .from_env_lossy()
+        )
+        .with_target(true)
+        .with_thread_ids(false)
+        .with_file(true)
+        .with_line_number(true)
         .init();
 }
 

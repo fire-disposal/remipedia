@@ -75,22 +75,3 @@ impl<'r> FromRequest<'r> for AuthenticatedUser {
         }
     }
 }
-
-/// 显式模块守卫（指定模块）
-///
-/// 用法示例：
-/// ```ignore
-/// let user = AuthenticatedUser::from_request(request).await;
-/// if !ExplicitModuleGuard::check(&user, Module::Patients) {
-///     return Err(AppError::Forbidden);
-/// }
-/// ```
-#[derive(Clone)]
-pub struct ExplicitModuleGuard;
-
-impl ExplicitModuleGuard {
-    /// 检查用户是否有权访问指定模块
-    pub fn check(user: &AuthenticatedUser, module: Module) -> bool {
-        user.can_access_module(&module)
-    }
-}

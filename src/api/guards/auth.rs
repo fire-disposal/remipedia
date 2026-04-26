@@ -48,7 +48,7 @@ impl<'r> FromRequest<'r> for AuthenticatedUser {
                     }
                     None => Outcome::Error((
                         Status::InternalServerError,
-                        AppError::ConfigError("JWT 配置缺失".into()),
+                        AppError::InternalError("JWT 配置缺失".into()),
                     )),
                 }
             }

@@ -7,9 +7,9 @@ use utoipa::OpenApi;
 use uuid::Uuid;
 
 use crate::api::guards::ModuleGuard;
+use crate::core::entity::Binding;
 use crate::dto::request::{CreateBindingRequest, EndBindingRequest, SwitchBindingRequest};
 use crate::dto::response::BindingListResponse;
-use crate::dto::response::BindingResponse;
 use crate::errors::{AppError, AppResult};
 use crate::service::BindingService;
 
@@ -25,7 +25,7 @@ use crate::service::BindingService;
         ("id" = String, Path, description = "绑定ID")
     ),
     responses(
-        (status = 200, description = "获取成功", body = BindingResponse),
+        (status = 200, description = "获取成功", body = Binding),
         (status = 404, description = "绑定不存在"),
     )
 )]
@@ -34,7 +34,7 @@ pub async fn get_binding(
     pool: &State<PgPool>,
     _guard: ModuleGuard,
     id: &str,
-) -> AppResult<Json<BindingResponse>> {
+) -> AppResult<Json<Binding>> {
     let id = Uuid::parse_str(id).map_err(|_| AppError::ValidationError("无效的绑定 ID".into()))?;
     let service = BindingService::new(pool);
     let response = service.get_by_id(&id).await?;
@@ -96,7 +96,7 @@ pub async fn list_bindings(
     ),
     request_body = CreateBindingRequest,
     responses(
-        (status = 201, description = "绑定成功", body = BindingResponse),
+        (status = 201, description = "绑定成功", body = Binding),
         (status = 400, description = "设备已有有效绑定"),
         (status = 404, description = "设备或患者不存在"),
     )
@@ -106,7 +106,7 @@ pub async fn create_binding(
     pool: &State<PgPool>,
     _guard: ModuleGuard,
     req: Json<CreateBindingRequest>,
-) -> AppResult<(Status, Json<BindingResponse>)> {
+) -> AppResult<(Status, Json<Binding>)> {
     let service = BindingService::new(pool);
     let response = service.bind(req.into_inner()).await?;
     Ok((Status::Created, Json(response)))
@@ -153,7 +153,7 @@ pub async fn delete_binding(
     ),
     request_body = EndBindingRequest,
     responses(
-        (status = 200, description = "结束成功", body = BindingResponse),
+        (status = 200, description = "结束成功", body = Binding),
         (status = 404, description = "绑定不存在或已结束"),
     )
 )]
@@ -163,7 +163,7 @@ pub async fn end_binding(
     _guard: ModuleGuard,
     id: &str,
     req: Json<EndBindingRequest>,
-) -> AppResult<Json<BindingResponse>> {
+) -> AppResult<Json<Binding>> {
     let id = Uuid::parse_str(id).map_err(|_| AppError::ValidationError("无效的绑定 ID".into()))?;
     let service = BindingService::new(pool);
     let response = service.end_binding(&id, req.into_inner()).await?;
@@ -180,7 +180,7 @@ pub async fn end_binding(
     ),
     request_body = SwitchBindingRequest,
     responses(
-        (status = 201, description = "切换成功", body = BindingResponse),
+        (status = 201, description = "切换成功", body = Binding),
         (status = 400, description = "设备已有有效绑定"),
         (status = 404, description = "设备或患者不存在"),
     )
@@ -190,7 +190,7 @@ pub async fn switch_binding(
     pool: &State<PgPool>,
     _guard: ModuleGuard,
     req: Json<SwitchBindingRequest>,
-) -> AppResult<(Status, Json<BindingResponse>)> {
+) -> AppResult<(Status, Json<Binding>)> {
     let service = BindingService::new(pool);
     let response = service.switch_binding(req.into_inner()).await?;
     Ok((Status::Created, Json(response)))

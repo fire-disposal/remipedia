@@ -1,20 +1,18 @@
 use log::info;
 use sqlx::PgPool;
+use std::collections::HashMap;
 use uuid::Uuid;
 
 use crate::core::entity::NewUser;
-use crate::dto::convert::IntoResponse;
 use crate::dto::request::{CreateUserRequest, UpdateUserRequest, UserQuery};
 use crate::dto::response::{Pagination, UserListResponse, UserResponse};
 use crate::errors::{AppError, AppResult};
 use crate::repository::{RoleRepository, UserRepository};
 use crate::service::AuthService;
-use crate::service::ServiceConverter;
 
 pub struct UserService<'a> {
     user_repo: UserRepository<'a>,
     role_repo: RoleRepository<'a>,
-    converter: ServiceConverter<'a>,
 }
 
 impl<'a> UserService<'a> {
@@ -22,7 +20,6 @@ impl<'a> UserService<'a> {
         Self {
             user_repo: UserRepository::new(pool),
             role_repo: RoleRepository::new(pool),
-            converter: ServiceConverter::new(pool),
         }
     }
 
@@ -31,7 +28,7 @@ impl<'a> UserService<'a> {
         // 验证角色存在
         let role_id = Uuid::parse_str(&req.role_id)
             .map_err(|_| AppError::ValidationError("无效的角色ID".into()))?;
-        
+
         let role = self.role_repo.find_by_id(&role_id).await?;
         if role.is_none() {
             return Err(AppError::ValidationError("角色不存在".into()));
@@ -39,7 +36,7 @@ impl<'a> UserService<'a> {
 
         // 检查用户名是否存在
         if self.user_repo.exists_by_username(&req.username).await? {
-            return Err(AppError::UsernameExists);
+            return Err(AppError::Conflict("用户名已存在".into()));
         }
 
         // 哈希密码
@@ -62,14 +59,14 @@ impl<'a> UserService<'a> {
             user.id, user.username
         );
 
-        // 使用IntoResponse trait进行转换
-        user.into_response(&self.role_repo).await
+        // 使用to_response方法转换
+        user.to_response(&self.role_repo).await
     }
 
     /// 获取用户
     pub async fn get_by_id(&self, id: &Uuid) -> AppResult<UserResponse> {
         let user = self.user_repo.find_by_id(id).await?;
-        user.into_response(&self.role_repo).await
+        user.to_response(&self.role_repo).await
     }
 
     /// 更新用户
@@ -96,7 +93,7 @@ impl<'a> UserService<'a> {
 
         info!("用户更新成功: user_id={}", user.id);
 
-        user.into_response(&self.role_repo).await
+        user.to_response(&self.role_repo).await
     }
 
     /// 查询用户列表
@@ -127,7 +124,12 @@ impl<'a> UserService<'a> {
 
         // 收集所有唯一的role_id进行批量查询（优化N+1问题）
         let role_ids: Vec<_> = users.iter().map(|u| u.role_id).collect();
-        let role_names = self.converter.get_role_names(&role_ids).await?;
+        let mut role_names: HashMap<Uuid, String> = HashMap::new();
+        for role_id in &role_ids {
+            if let Ok(Some(role)) = self.role_repo.find_by_id(role_id).await {
+                role_names.insert(*role_id, role.name);
+            }
+        }
 
         // 转换为响应
         let responses: Vec<UserResponse> = users
@@ -137,7 +139,7 @@ impl<'a> UserService<'a> {
                     .get(&user.role_id)
                     .cloned()
                     .unwrap_or_else(|| "unknown".to_string());
-                
+
                 UserResponse {
                     id: user.id,
                     username: user.username,

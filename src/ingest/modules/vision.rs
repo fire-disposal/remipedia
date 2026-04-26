@@ -5,10 +5,10 @@
 
 use crate::core::entity::{DataPoint, DataCategory, Severity};
 use crate::errors::AppResult;
+use crate::ingest::modules::mqtt_runner;
 use crate::repository::{DataRepository, RawDataRepository};
-use rumqttc::{AsyncClient, Event, Incoming, MqttOptions, QoS};
+use rumqttc::QoS;
 use sqlx::PgPool;
-use std::time::Duration;
 use uuid::Uuid;
 
 /// 视觉识别模块配置
@@ -66,79 +66,36 @@ impl VisionModule {
         );
 
         let pool = pool.clone();
-        let broker = self.config.mqtt_broker.clone();
-        let port = self.config.mqtt_port;
-        let client_id = self.config.client_id.clone();
-        let topic = self.config.mqtt_topic.clone();
-        let qos = self.config.qos;
+        let params = mqtt_runner::MqttParams {
+            client_id: self.config.client_id.clone(),
+            broker: self.config.mqtt_broker.clone(),
+            port: self.config.mqtt_port,
+            topic: self.config.mqtt_topic.clone(),
+            qos: self.config.qos,
+        };
 
-        tokio::spawn(async move {
-            loop {
-                match Self::run_mqtt_client(&pool, &broker, port, &client_id, &topic, qos).await {
-                    Ok(_) => {
-                        log::info!("视觉识别MQTT客户端正常退出");
-                        break;
-                    }
-                    Err(e) => {
-                        log::error!("视觉识别MQTT客户端错误: {}, 5秒后重连...", e);
-                        tokio::time::sleep(Duration::from_secs(5)).await;
-                    }
-                }
-            }
+        mqtt_runner::spawn_mqtt_task("vision".to_string(), params, move |p| {
+            let pool = pool.clone();
+            async move { Self::run(pool, p).await }
         });
 
         Ok(())
     }
 
-    /// 运行MQTT客户端
-    async fn run_mqtt_client(
-        pool: &PgPool,
-        broker: &str,
-        port: u16,
-        client_id: &str,
-        topic: &str,
-        qos: QoS,
-    ) -> AppResult<()> {
-        let mut mqttoptions = MqttOptions::new(client_id, broker, port);
-        mqttoptions.set_keep_alive(Duration::from_secs(30));
-        mqttoptions.set_clean_session(false); // 持久会话，避免消息丢失
-
-        let (client, mut eventloop) = AsyncClient::new(mqttoptions, 100);
-
-        // 订阅主题
-        client.subscribe(topic, qos).await
-            .map_err(|e| crate::errors::AppError::ValidationError(format!("订阅失败: {}", e)))?;
-
-        log::info!("视觉识别模块已订阅: {}", topic);
-
-        // 消息处理循环
-        loop {
-            match eventloop.poll().await {
-                Ok(Event::Incoming(Incoming::Publish(publish))) => {
-                    let topic = publish.topic.clone();
-                    let payload = publish.payload.to_vec();
-                    let pool = pool.clone();
-                    
-                    // 异步处理消息
-                    tokio::spawn(async move {
-                        if let Err(e) = Self::handle_message(&topic, &payload, &pool).await {
-                            log::error!("处理视觉检测消息失败 [{}]: {}", topic, e);
-                        }
-                    });
+    /// 运行 MQTT 事件循环（使用共享运行器）
+    async fn run(pool: PgPool, params: mqtt_runner::MqttParams) -> AppResult<()> {
+        let (_, mut eventloop) = mqtt_runner::connect_and_subscribe(&params).await?;
+        mqtt_runner::run_event_loop(&mut eventloop, "vision", move |publish| {
+            let topic = publish.topic.clone();
+            let payload = publish.payload.to_vec();
+            let pool = pool.clone();
+            tokio::spawn(async move {
+                if let Err(e) = Self::handle_message(&topic, &payload, &pool).await {
+                    log::error!("处理视觉检测消息失败 [{}]: {}", topic, e);
                 }
-                Ok(Event::Incoming(Incoming::ConnAck(_))) => {
-                    log::info!("视觉识别模块MQTT连接已建立");
-                }
-                Ok(Event::Incoming(Incoming::SubAck(_))) => {
-                    log::info!("视觉识别模块订阅已确认");
-                }
-                Ok(_) => {}
-                Err(e) => {
-                    log::error!("视觉识别MQTT错误: {}", e);
-                    return Err(crate::errors::AppError::ValidationError(format!("MQTT错误: {}", e)));
-                }
-            }
-        }
+            });
+        })
+        .await
     }
 
     /// 处理单条MQTT消息
@@ -297,32 +254,12 @@ fn create_vision_datapoints(detection: VisionDetection, device_id: Uuid) -> Vec<
     points
 }
 
-/// 解析或创建设备
+/// 解析或创建设备 (委托给共享实现)
 async fn resolve_or_create_device(pool: &PgPool, device_id_str: &str) -> AppResult<Uuid> {
-    use crate::repository::DeviceRepository;
-    use crate::core::entity::NewDevice;
-
-    let repo = DeviceRepository::new(pool);
-    
-    // 尝试查找
-    if let Some(device) = repo.find_by_serial(device_id_str).await? {
-        return Ok(device.id);
-    }
-    
-    // 自动创建设备
-    let new_device = NewDevice {
-        serial_number: device_id_str.to_string(),
-        device_type: "vision_camera".to_string(),
-        status: "active".to_string(),
-        firmware_version: None,
-        metadata: Some(serde_json::json!({
-            "capabilities": ["fall_detection", "wander_detection"]
-        })),
-    };
-    
-    let device = repo.insert(&new_device).await?;
-    log::info!("自动注册视觉设备: {} -> {}", device_id_str, device.id);
-    Ok(device.id)
+    let metadata = Some(serde_json::json!({
+        "capabilities": ["fall_detection", "wander_detection"]
+    }));
+    crate::ingest::modules::resolve_or_create_device(pool, device_id_str, "vision_camera", metadata).await
 }
 
 #[cfg(test)]

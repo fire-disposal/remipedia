@@ -1,5 +1,4 @@
 use rocket::http::Status;
-use crate::dto::response::{ModuleListResponse, ModuleResponse, BatchAssignModulesRequest, SetRoleModulesRequest};
 use rocket::serde::json::Json;
 use rocket::State;
 use rocket::{delete, get, post, put};
@@ -8,10 +7,11 @@ use utoipa::OpenApi;
 use uuid::Uuid;
 
 use crate::api::guards::SystemRoleGuard;
+use crate::core::entity::{AuditLog, Module, Role};
 use crate::dto::response::{
-    AssignModuleRequest, AuditLogListResponse, AuditLogResponse,
-    CreateRoleRequest, RoleListResponse, RoleModuleResponse,
-    RoleResponse, UpdateRoleRequest,
+    AssignModuleRequest, AuditLogListResponse, AuditLogQueryParams, BatchAssignModulesRequest,
+    CreateRoleRequest, ModuleListResponse, RoleListResponse, RoleModuleResponse,
+    SetRoleModulesRequest, UpdateRoleRequest,
 };
 use crate::errors::{AppError, AppResult};
 use crate::service::AdminService;
@@ -51,7 +51,7 @@ pub async fn list_roles(
         ("id" = String, Path, description = "角色ID")
     ),
     responses(
-        (status = 200, description = "获取成功", body = RoleResponse),
+        (status = 200, description = "获取成功", body = Role),
         (status = 404, description = "角色不存在"),
         (status = 403, description = "无权限"),
     )
@@ -61,7 +61,7 @@ pub async fn get_role(
     pool: &State<PgPool>,
     _guard: SystemRoleGuard,
     id: &str,
-) -> AppResult<Json<RoleResponse>> {
+) -> AppResult<Json<Role>> {
     let id = Uuid::parse_str(id).map_err(|_| AppError::ValidationError("无效的角色ID".into()))?;
     let service = AdminService::new(pool);
     let response = service.get_role(&id).await?;
@@ -78,7 +78,7 @@ pub async fn get_role(
     ),
     request_body = CreateRoleRequest,
     responses(
-        (status = 201, description = "创建成功", body = RoleResponse),
+        (status = 201, description = "创建成功", body = Role),
         (status = 400, description = "验证失败"),
         (status = 403, description = "无权限"),
     )
@@ -88,7 +88,7 @@ pub async fn create_role(
     pool: &State<PgPool>,
     _guard: SystemRoleGuard,
     req: Json<CreateRoleRequest>,
-) -> AppResult<(Status, Json<RoleResponse>)> {
+) -> AppResult<(Status, Json<Role>)> {
     let service = AdminService::new(pool);
     let response = service.create_role(req.name.clone(), req.description.clone()).await?;
     Ok((Status::Created, Json(response)))
@@ -107,7 +107,7 @@ pub async fn create_role(
     ),
     request_body = UpdateRoleRequest,
     responses(
-        (status = 200, description = "更新成功", body = RoleResponse),
+        (status = 200, description = "更新成功", body = Role),
         (status = 404, description = "角色不存在"),
         (status = 400, description = "验证失败"),
         (status = 403, description = "无权限"),
@@ -119,7 +119,7 @@ pub async fn update_role(
     _guard: SystemRoleGuard,
     id: &str,
     req: Json<UpdateRoleRequest>,
-) -> AppResult<Json<RoleResponse>> {
+) -> AppResult<Json<Role>> {
     let id = Uuid::parse_str(id).map_err(|_| AppError::ValidationError("无效的角色ID".into()))?;
     let service = AdminService::new(pool);
     let response = service.update_role(&id, req.name.clone(), req.description.clone()).await?;
@@ -371,11 +371,11 @@ pub async fn list_audit_logs(
     page_size: Option<u32>,
 ) -> AppResult<Json<AuditLogListResponse>> {
     let service = AdminService::new(pool);
-    
+
     let user_id = user_id.and_then(|id| Uuid::parse_str(&id).ok());
     let page = page.unwrap_or(1);
     let page_size = page_size.unwrap_or(20);
-    
+
     // 解析时间字符串
     let start_time = start_time.and_then(|s| {
         chrono::DateTime::parse_from_rfc3339(&s)
@@ -387,7 +387,7 @@ pub async fn list_audit_logs(
             .ok()
             .map(|dt| dt.with_timezone(&chrono::Utc))
     });
-    
+
     let response = service
         .query_audit_logs(user_id, action, resource, status, start_time, end_time, page, page_size)
         .await?;
@@ -406,7 +406,7 @@ pub async fn list_audit_logs(
         ("id" = String, Path, description = "审计日志ID")
     ),
     responses(
-        (status = 200, description = "获取成功", body = AuditLogResponse),
+        (status = 200, description = "获取成功", body = AuditLog),
         (status = 404, description = "审计日志不存在"),
         (status = 403, description = "无权限"),
     )
@@ -416,7 +416,7 @@ pub async fn get_audit_log(
     pool: &State<PgPool>,
     _guard: SystemRoleGuard,
     id: &str,
-) -> AppResult<Json<AuditLogResponse>> {
+) -> AppResult<Json<AuditLog>> {
     let id = Uuid::parse_str(id).map_err(|_| AppError::ValidationError("无效的日志ID".into()))?;
     let service = AdminService::new(pool);
     let response = service.get_audit_log(&id).await?;
@@ -460,18 +460,19 @@ pub fn routes() -> Vec<rocket::Route> {
     ),
     components(
         schemas(
-            RoleResponse,
+            Role,
             RoleListResponse,
             CreateRoleRequest,
             UpdateRoleRequest,
-            ModuleResponse,
+            Module,
             ModuleListResponse,
             RoleModuleResponse,
             AssignModuleRequest,
             BatchAssignModulesRequest,
             SetRoleModulesRequest,
-            AuditLogResponse,
+            AuditLog,
             AuditLogListResponse,
+            AuditLogQueryParams,
         )
     )
 )]

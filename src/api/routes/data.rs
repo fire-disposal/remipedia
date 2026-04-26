@@ -7,8 +7,9 @@ use uuid::Uuid;
 use serde::Deserialize;
 
 use crate::api::guards::ModuleGuard;
+use crate::core::entity::Datasheet;
 use crate::dto::request::DataReportRequest;
-use crate::dto::response::{DataQueryResponse, DataRecordResponse, DataReportResponse};
+use crate::dto::response::{DataQueryResponse, DataReportResponse};
 use crate::errors::AppResult;
 use crate::service::DataService;
 
@@ -143,7 +144,7 @@ pub async fn query_alerts(
     data_type: Option<String>,
     severity: Option<String>,
     limit: Option<i64>,
-) -> AppResult<Json<Vec<DataRecordResponse>>> {
+) -> AppResult<Json<Vec<Datasheet>>> {
     let service = DataService::new(pool);
     
     let query = crate::dto::request::AlertQuery {
@@ -171,7 +172,7 @@ pub async fn query_alerts(
     ),
     request_body = AcknowledgeRequest,
     responses(
-        (status = 200, description = "确认成功", body = DataRecordResponse),
+        (status = 200, description = "确认成功", body = Datasheet),
         (status = 404, description = "事件不存在"),
     )
 )]
@@ -180,10 +181,10 @@ pub async fn acknowledge_event(
     pool: &State<PgPool>,
     _guard: ModuleGuard,
     req: Json<AcknowledgeRequest>,
-) -> AppResult<Json<DataRecordResponse>> {
+) -> AppResult<Json<Datasheet>> {
     let service = DataService::new(pool);
     let result = service.acknowledge_event(&req.patient_id, &req.time, req.device_id.as_ref()).await?;
-    Ok(Json(result.into()))
+    Ok(Json(result))
 }
 
 /// 解决事件
@@ -196,7 +197,7 @@ pub async fn acknowledge_event(
     ),
     request_body = ResolveRequest,
     responses(
-        (status = 200, description = "解决成功", body = DataRecordResponse),
+        (status = 200, description = "解决成功", body = Datasheet),
         (status = 404, description = "事件不存在"),
     )
 )]
@@ -205,10 +206,10 @@ pub async fn resolve_event(
     pool: &State<PgPool>,
     _guard: ModuleGuard,
     req: Json<ResolveRequest>,
-) -> AppResult<Json<DataRecordResponse>> {
+) -> AppResult<Json<Datasheet>> {
     let service = DataService::new(pool);
     let result = service.resolve_event(&req.patient_id, &req.time, req.device_id.as_ref()).await?;
-    Ok(Json(result.into()))
+    Ok(Json(result))
 }
 
 pub fn routes() -> Vec<rocket::Route> {

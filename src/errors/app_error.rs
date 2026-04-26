@@ -5,22 +5,23 @@ use serde_json::json;
 use thiserror::Error;
 
 /// 应用统一错误类型
+///
+/// 精简为 7 个核心变体，消除语义重叠：
+/// - `DeviceNotBound` → `ValidationError`
+/// - `BindingAlreadyExists`/`UsernameExists` → `Conflict`
+/// - `InvalidPassword` → `Unauthorized`
+/// - `UuidError` → `ValidationError`
+/// - `ConfigError`/`ResourceExhausted`/`IoError` → `InternalError`
 #[derive(Error, Debug)]
 pub enum AppError {
     #[error("数据库错误: {0}")]
     DatabaseError(#[from] sqlx::Error),
 
-    #[error("实体未找到: {0}")]
+    #[error("未找到: {0}")]
     NotFound(String),
 
-    #[error("验证失败: {0}")]
+    #[error("请求无效: {0}")]
     ValidationError(String),
-
-    #[error("设备未绑定")]
-    DeviceNotBound,
-
-    #[error("绑定已存在")]
-    BindingAlreadyExists,
 
     #[error("认证失败: {0}")]
     Unauthorized(String),
@@ -28,31 +29,22 @@ pub enum AppError {
     #[error("权限不足")]
     Forbidden,
 
-    #[error("密码错误")]
-    InvalidPassword,
+    #[error("资源冲突: {0}")]
+    Conflict(String),
 
-    #[error("用户名已存在")]
-    UsernameExists,
-
-    #[error("配置错误: {0}")]
-    ConfigError(String),
-
-    #[error("UUID 解析错误")]
-    UuidError,
-
-    #[error("资源耗尽: {0}")]
-    ResourceExhausted(String),
-
-    #[error("IO错误: {0}")]
-    IoError(#[from] std::io::Error),
-
-    #[error("内部错误")]
-    InternalError,
+    #[error("内部错误: {0}")]
+    InternalError(String),
 }
 
 impl From<uuid::Error> for AppError {
-    fn from(_: uuid::Error) -> Self {
-        Self::UuidError
+    fn from(e: uuid::Error) -> Self {
+        Self::ValidationError(format!("UUID 格式错误: {}", e))
+    }
+}
+
+impl From<std::io::Error> for AppError {
+    fn from(e: std::io::Error) -> Self {
+        Self::InternalError(format!("IO 错误: {}", e))
     }
 }
 
@@ -60,26 +52,25 @@ pub type AppResult<T> = Result<T, AppError>;
 
 impl<'r> Responder<'r, 'r> for AppError {
     fn respond_to(self, req: &'r Request<'_>) -> response::Result<'r> {
-        let status = match &self {
-            Self::NotFound(_) => Status::NotFound,
-            Self::ValidationError(_) => Status::BadRequest,
-            Self::DeviceNotBound => Status::BadRequest,
-            Self::BindingAlreadyExists => Status::Conflict,
-            Self::Unauthorized(_) => Status::Unauthorized,
-            Self::Forbidden => Status::Forbidden,
-            Self::InvalidPassword => Status::Unauthorized,
-            Self::UsernameExists => Status::Conflict,
-            Self::ConfigError(_) => Status::InternalServerError,
-            Self::UuidError => Status::BadRequest,
-            Self::ResourceExhausted(_) => Status::ServiceUnavailable,
-            Self::IoError(_) => Status::InternalServerError,
-            Self::DatabaseError(_) => Status::InternalServerError,
-            Self::InternalError => Status::InternalServerError,
+        let (status, error_msg) = match &self {
+            Self::NotFound(_) => (Status::NotFound, self.to_string()),
+            Self::ValidationError(_) => (Status::BadRequest, self.to_string()),
+            Self::Unauthorized(_) => (Status::Unauthorized, self.to_string()),
+            Self::Forbidden => (Status::Forbidden, self.to_string()),
+            Self::Conflict(_) => (Status::Conflict, self.to_string()),
+            Self::DatabaseError(e) => {
+                log::error!("数据库错误: {:?}", e);
+                (Status::InternalServerError, "内部服务错误".into())
+            }
+            Self::InternalError(e) => {
+                log::error!("内部错误: {}", e);
+                (Status::InternalServerError, "内部服务错误".into())
+            }
         };
 
         let body = json!({
             "success": false,
-            "error": self.to_string(),
+            "error": error_msg,
             "code": status.code,
         });
 

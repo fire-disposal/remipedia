@@ -2,6 +2,17 @@
 //!
 //! 独立模块：监听TCP端口，处理床垫设备的Msgpack协议数据
 //! 包含：TCP监听 + 帧解码 + 状态管理 + 事件检测
+//!
+//! # 线协议格式 (v2)
+//!
+//! ```text
+//! [0xAB, 0xCD] [len_hi: u8] [len_lo: u8] [crc: u8] [payload: N bytes]
+//! ```
+//!
+//! - Magic: `0xAB 0xCD` (2字节)
+//! - 载荷长度: `len_hi << 8 | len_lo` (2字节, 大端序, 最大 65535)
+//! - CRC8: 对 `magic + len + payload` 做校验 (1字节)
+//! - 载荷: Msgpack 编码的床垫数据 (N字节)
 
 use crate::core::entity::{DataPoint, DataCategory, Severity};
 use crate::errors::AppResult;
@@ -11,6 +22,12 @@ use std::net::SocketAddr;
 use tokio::io::AsyncReadExt;
 use tokio::net::TcpListener;
 use uuid::Uuid;
+
+/// 线协议: magic 2B + len 2B + crc 1B = 5B 头部
+const FRAME_HEADER_SIZE: usize = 5;
+
+/// 最大连续帧错误容忍次数，超过则断开连接防止死循环
+const MAX_CONSECUTIVE_FRAME_ERRORS: u32 = 10;
 
 /// 床垫模块配置
 #[derive(Debug, Clone)]
@@ -99,6 +116,9 @@ impl MattressModule {
 }
 
 /// 处理单个TCP连接
+///
+/// 包含帧计数器保护，防止损坏数据导致无限循环。
+/// 连续错误超过 [`MAX_CONSECUTIVE_FRAME_ERRORS`] 后主动断开。
 async fn handle_connection(
     mut stream: tokio::net::TcpStream,
     addr: std::net::SocketAddr,
@@ -114,6 +134,7 @@ async fn handle_connection(
     let mut temp_buf = [0u8; 4096];
     let mut state: Option<MattressState> = None;
     let mut device_id: Option<Uuid> = None;
+    let mut consecutive_errors: u32 = 0;
 
     loop {
         let n = match stream.read(&mut temp_buf).await {
@@ -132,9 +153,23 @@ async fn handle_connection(
 
         // 处理所有完整帧
         loop {
+            // 帧计数器保护: 连续错误过多时断开连接
+            if consecutive_errors >= MAX_CONSECUTIVE_FRAME_ERRORS {
+                log::error!(
+                    "床垫 {} 连续帧错误达到 {} 次，断开连接",
+                    addr,
+                    MAX_CONSECUTIVE_FRAME_ERRORS
+                );
+                return Err(crate::errors::AppError::InternalError(
+                    format!("连续帧错误过多 {}", addr)
+                ));
+            }
+
             match extract_msgpack_frame(&mut buffer, max_frame_size) {
                 Ok(Some(frame)) => {
-                    // 归档原始数据
+                    consecutive_errors = 0; // 成功解析，重置计数器
+                    
+                    // 归档原始数据 (仅归档完整帧)
                     let raw_id = raw_repo.archive_raw("mattress_tcp", &frame, addr.to_string()).await.ok();
                     
                     // 解析数据包
@@ -148,7 +183,7 @@ async fn handle_connection(
                             // 处理数据
                             if let Some(ref dev_id) = device_id {
                                 let (points, new_state) = process_mattress_data(
-                                    packet, 
+                                    packet,
                                     state.take(),
                                     *dev_id
                                 );
@@ -177,10 +212,12 @@ async fn handle_connection(
                 }
                 Ok(None) => break, // 需要更多数据
                 Err(e) => {
-                    log::warn!("帧提取错误 {}: {}", addr, e);
-                    // 尝试恢复：丢弃到下一个magic头
-                    if let Some(pos) = find_next_magic(&buffer[1..]) {
-                        buffer.drain(..pos + 1);
+                    consecutive_errors += 1;
+                    log::warn!("帧提取错误 ({}次) {}: {}", consecutive_errors, addr, e);
+                    
+                    // 尝试恢复：丢弃损坏字节直到下一个 magic 头
+                    if let Some(pos) = find_next_magic(&buffer) {
+                        buffer.drain(..pos);
                     } else {
                         buffer.clear();
                     }
@@ -192,53 +229,93 @@ async fn handle_connection(
     Ok(())
 }
 
-/// 提取Msgpack帧: [0xAB, 0xCD, len, crc, data...]
+/// 计算CRC8校验值 (CRC-8/ITU 标准)
+fn crc8(data: &[u8]) -> u8 {
+    use crc::{Crc, Algorithm};
+    const CRC8: Crc<u8> = Crc::<u8>::new(&Algorithm {
+        width: 8,
+        poly: 0x07,
+        init: 0x00,
+        refin: false,
+        refout: false,
+        xorout: 0x00,
+        check: 0xf4,
+        residue: 0x00,
+    });
+    let mut digest = CRC8.digest();
+    digest.update(data);
+    digest.finalize()
+}
+
+/// 提取 Msgpack 帧 (协议 v2)
+///
+/// 帧格式: `[0xAB, 0xCD] [len_hi] [len_lo] [crc] [payload: N]`
+///
+/// - `len = (len_hi << 8) | len_lo` 表示 payload 字节数
+/// - `crc` 校验范围: magic + len + payload 全部字节
+/// - 返回完整帧 (含头部 + payload) 或 None (半包)
 fn extract_msgpack_frame(buffer: &mut Vec<u8>, max_size: usize) -> AppResult<Option<Vec<u8>>> {
-    if buffer.len() < 4 {
+    if buffer.len() < FRAME_HEADER_SIZE {
         return Ok(None);
     }
 
-    // 查找magic头
+    // 查找 magic 头，无法匹配则返回错误供上层恢复
     if buffer[0] != 0xAB || buffer[1] != 0xCD {
         return Err(crate::errors::AppError::ValidationError(
-            format!("无效的magic头: {:02X} {:02X}", buffer[0], buffer[1])
+            format!("无效的 magic 头: {:02X} {:02X}", buffer[0], buffer[1])
         ));
     }
 
-    let data_len = buffer[2] as usize;
-    if data_len > max_size {
+    let payload_len = u16::from_be_bytes([buffer[2], buffer[3]]) as usize;
+
+    // 校验 payload_len 是否在合理范围 [1, max_size]
+    if payload_len == 0 || payload_len > max_size {
         return Err(crate::errors::AppError::ValidationError(
-            format!("帧长度 {} 超过最大值 {}", data_len, max_size)
+            format!("载荷长度 {} 不在有效范围 [1, {}]", payload_len, max_size)
         ));
     }
 
-    let total_len = 4 + data_len;
+    let total_len = FRAME_HEADER_SIZE + payload_len;
     if buffer.len() < total_len {
-        return Ok(None); // 需要更多数据
+        return Ok(None); // 半包，等待更多数据
     }
 
-    // CRC校验 (可选)
-    let _expected_crc = buffer[3];
-    let _data = &buffer[4..4 + data_len];
-    // TODO: CRC校验
+    // CRC 校验 (对整个帧除 CRC 自身字节外的所有字节)
+    let expected_crc = buffer[4];
+    let mut crc_data = Vec::with_capacity(4 + payload_len);
+    crc_data.extend_from_slice(&buffer[..4]);          // magic + len
+    crc_data.extend_from_slice(&buffer[5..total_len]); // payload (跳过 crc 字节)
+    let actual_crc = crc8(&crc_data);
+
+    if actual_crc != expected_crc {
+        return Err(crate::errors::AppError::ValidationError(
+            format!("CRC 校验失败: 期望 {:02X}, 实际 {:02X}", expected_crc, actual_crc)
+        ));
+    }
 
     let frame = buffer[..total_len].to_vec();
     buffer.drain(..total_len);
     Ok(Some(frame))
 }
 
-/// 查找下一个magic头位置
+/// 查找下一个 magic 头位置 (向前扫描恢复同步)
 fn find_next_magic(buffer: &[u8]) -> Option<usize> {
-    buffer.windows(2).position(|w| w == [0xAB, 0xCD])
+    // 从 index=1 开始查找，以避免匹配到当前帧自身的 magic
+    buffer[1..].windows(2).position(|w| w == [0xAB, 0xCD]).map(|p| p + 1)
 }
 
-/// 解析床垫数据包
+/// 解析床垫数据包 (协议 v2)
+///
+/// 帧格式: `[magic(2)] [len(2)] [crc(1)] [payload(N)]`
+/// 此函数接收完整帧 (含头部), 提取 payload 做 msgpack 解码。
 fn parse_mattress_packet(frame: &[u8]) -> AppResult<MattressPacket> {
-    if frame.len() < 5 {
-        return Err(crate::errors::AppError::ValidationError("数据包太短".into()));
+    if frame.len() < FRAME_HEADER_SIZE + 1 {
+        return Err(crate::errors::AppError::ValidationError(
+            format!("数据包太短: {} 字节", frame.len())
+        ));
     }
 
-    let data = &frame[4..];
+    let data = &frame[FRAME_HEADER_SIZE..]; // 跳过 5 字节头部
     let value: serde_json::Value = rmp_serde::from_slice(data)
         .map_err(|e| crate::errors::AppError::ValidationError(format!("Msgpack解析失败: {}", e)))?;
 
@@ -377,30 +454,9 @@ fn create_event(device_id: Uuid, event_type: &str, severity: Severity, message: 
     }
 }
 
-/// 解析或创建设备
+/// 解析或创建设备 (委托给共享实现)
 async fn resolve_or_create_device(pool: &PgPool, serial: &str) -> AppResult<Uuid> {
-    use crate::repository::DeviceRepository;
-    use crate::core::entity::NewDevice;
-
-    let repo = DeviceRepository::new(pool);
-    
-    // 尝试查找
-    if let Some(device) = repo.find_by_serial(serial).await? {
-        return Ok(device.id);
-    }
-    
-    // 自动创建设备
-    let new_device = NewDevice {
-        serial_number: serial.to_string(),
-        device_type: "smart_mattress".to_string(),
-        status: "active".to_string(),
-        firmware_version: None,
-        metadata: None,
-    };
-    
-    let device = repo.insert(&new_device).await?;
-    log::info!("自动注册床垫设备: {} -> {}", serial, device.id);
-    Ok(device.id)
+    crate::ingest::modules::resolve_or_create_device(pool, serial, "smart_mattress", None).await
 }
 
 // 辅助函数

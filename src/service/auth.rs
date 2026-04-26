@@ -93,11 +93,11 @@ impl<'a> AuthService<'a> {
 
         // 验证密码
         let parsed_hash =
-            PasswordHash::new(&user.password_hash).map_err(|_| AppError::InternalError)?;
+            PasswordHash::new(&user.password_hash).map_err(|_| AppError::InternalError("密码哈希解析失败".into()))?;
 
         Argon2::default()
             .verify_password(req.password.as_bytes(), &parsed_hash)
-            .map_err(|_| AppError::InvalidPassword)?;
+            .map_err(|_| AppError::Unauthorized("密码错误".into()))?;
 
         // 检查用户状态
         if user.status != "active" {
@@ -201,11 +201,11 @@ impl<'a> AuthService<'a> {
 
         // 验证旧密码
         let parsed_hash =
-            PasswordHash::new(&user.password_hash).map_err(|_| AppError::InternalError)?;
+            PasswordHash::new(&user.password_hash).map_err(|_| AppError::InternalError("密码哈希解析失败".into()))?;
 
         Argon2::default()
             .verify_password(req.old_password.as_bytes(), &parsed_hash)
-            .map_err(|_| AppError::InvalidPassword)?;
+            .map_err(|_| AppError::Unauthorized("密码错误".into()))?;
 
         // 哈希新密码
         let new_hash = Self::hash_password(&req.new_password)?;
@@ -279,7 +279,7 @@ impl<'a> AuthService<'a> {
         let default_role = self.role_repo.find_by_name("caregiver").await?;
         let role_id = default_role
             .map(|r| r.id)
-            .ok_or_else(|| AppError::ConfigError("默认角色未找到".into()))?;
+            .ok_or_else(|| AppError::InternalError("默认角色未找到".into()))?;
 
         // 哈希密码
         let password_hash = Self::hash_password(&req.password)?;
@@ -398,7 +398,7 @@ impl<'a> AuthService<'a> {
         argon2
             .hash_password(password.as_bytes(), &salt)
             .map(|hash| hash.to_string())
-            .map_err(|_| AppError::InternalError)
+            .map_err(|_| AppError::InternalError("密码哈希失败".into()))
     }
 
     /// 生成 Access Token
@@ -424,7 +424,7 @@ impl<'a> AuthService<'a> {
             &claims,
             &EncodingKey::from_secret(self.jwt_config.secret.as_bytes()),
         )
-        .map_err(|_| AppError::InternalError)?;
+        .map_err(|_| AppError::InternalError("JWT 签名失败".into()))?;
 
         Ok((token, expires_at))
     }
@@ -442,7 +442,7 @@ impl<'a> AuthService<'a> {
             &claims,
             &EncodingKey::from_secret(self.jwt_config.secret.as_bytes()),
         )
-        .map_err(|_| AppError::InternalError)?;
+        .map_err(|_| AppError::InternalError("Refresh Token 生成失败".into()))?;
 
         // 存储 refresh token 的哈希值
         let token_hash = Self::hash_token(&token);

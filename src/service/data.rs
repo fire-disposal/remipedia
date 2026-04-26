@@ -3,9 +3,9 @@ use log::info;
 use sqlx::PgPool;
 use uuid::Uuid;
 
-use crate::core::entity::{DataPoint, DataQuery as CoreDataQuery};
+use crate::core::entity::{DataPoint, Datasheet, DataQuery as CoreDataQuery};
 use crate::dto::request::{AlertQuery, DataQuery, DataReportRequest};
-use crate::dto::response::{AlertStatsResponse, DataQueryResponse, DataRecordResponse, DataReportResponse, Pagination};
+use crate::dto::response::{AlertStatsResponse, DataQueryResponse, DataReportResponse, Pagination};
 use crate::errors::AppResult;
 use crate::repository::{BindingRepository, DataRepository, DeviceRepository};
 
@@ -118,10 +118,8 @@ impl<'a> DataService<'a> {
         let total = self.data_repo.count(&core_query).await?;
         let data = self.data_repo.query(&core_query).await?;
 
-        let records: Vec<DataRecordResponse> = data.into_iter().map(|d| d.into()).collect();
-
         Ok(DataQueryResponse {
-            data: records,
+            data,
             pagination: Pagination::new(query.page, query.page_size, total),
         })
     }
@@ -145,10 +143,8 @@ impl<'a> DataService<'a> {
         let total = self.data_repo.count(&core_query).await?;
         let data = self.data_repo.query(&core_query).await?;
 
-        let records: Vec<DataRecordResponse> = data.into_iter().map(|d| d.into()).collect();
-
         Ok(DataQueryResponse {
-            data: records,
+            data,
             pagination: Pagination::new(query.page, query.page_size, total),
         })
     }
@@ -174,9 +170,9 @@ impl<'a> DataService<'a> {
         patient_id: &Uuid,
         time: &chrono::DateTime<chrono::Utc>,
         device_id: Option<&Uuid>,
-    ) -> AppResult<DataRecordResponse> {
+    ) -> AppResult<Datasheet> {
         let result = self.data_repo.acknowledge_event(patient_id, time, device_id).await?;
-        Ok(result.into())
+        Ok(result)
     }
 
     /// 解决事件
@@ -185,9 +181,9 @@ impl<'a> DataService<'a> {
         patient_id: &Uuid,
         time: &chrono::DateTime<chrono::Utc>,
         device_id: Option<&Uuid>,
-    ) -> AppResult<DataRecordResponse> {
+    ) -> AppResult<Datasheet> {
         let result = self.data_repo.resolve_event(patient_id, time, device_id).await?;
-        Ok(result.into())
+        Ok(result)
     }
 
     /// 按患者查询最新数据
@@ -196,31 +192,11 @@ impl<'a> DataService<'a> {
         patient_id: &Uuid,
         data_type: Option<&str>,
         limit: i64,
-    ) -> AppResult<Vec<DataRecordResponse>> {
+    ) -> AppResult<Vec<Datasheet>> {
         let data = self
             .data_repo
             .find_latest_by_patient(patient_id, data_type, limit)
             .await?;
-        Ok(data.into_iter().map(|d| d.into()).collect())
-    }
-}
-
-// 实体到响应的转换
-impl From<crate::core::entity::Datasheet> for DataRecordResponse {
-    fn from(data: crate::core::entity::Datasheet) -> Self {
-        Self {
-            time: data.time,
-            device_id: data.device_id,
-            patient_id: data.patient_id,
-            data_type: data.data_type,
-            data_category: data.data_category,
-            value_numeric: data.value_numeric,
-            value_text: data.value_text,
-            severity: data.severity,
-            status: data.status,
-            payload: data.payload,
-            source: data.source,
-            ingested_at: data.ingested_at,
-        }
+        Ok(data)
     }
 }

@@ -1,4 +1,5 @@
 use std::sync::Arc;
+use std::time::Instant;
 
 use argon2::{
     password_hash::{rand_core::OsRng, PasswordHasher, SaltString},
@@ -21,6 +22,51 @@ static MIGRATOR: sqlx::migrate::Migrator = sqlx::migrate!();
 
 /// CORS Fairing
 pub struct Cors;
+
+/// 请求日志 Fairing — 自动记录每个请求的方法、路径、状态码和耗时。
+pub struct RequestLogger;
+
+#[rocket::async_trait]
+impl Fairing for RequestLogger {
+    fn info(&self) -> Info {
+        Info {
+            name: "RequestLogger",
+            kind: Kind::Request | Kind::Response,
+        }
+    }
+
+    async fn on_request(&self, request: &mut rocket::Request<'_>, _: &mut rocket::Data<'_>) {
+        // 在请求附件中存入开始时间
+        request.local_cache(|| Instant::now());
+    }
+
+    async fn on_response<'r>(
+        &self,
+        request: &'r rocket::Request<'_>,
+        response: &mut rocket::Response<'r>,
+    ) {
+        let duration = request
+            .local_cache(|| Instant::now())
+            .elapsed();
+
+        let method = request.method();
+        let path = request.uri().path();
+        let status = response.status();
+        let user_agent = request
+            .headers()
+            .get_one("User-Agent")
+            .unwrap_or("-");
+
+        log::info!(
+            "{} {} {} ({:?}) UA={}",
+            method,
+            path,
+            status,
+            duration,
+            user_agent,
+        );
+    }
+}
 
 #[rocket::async_trait]
 impl Fairing for Cors {
@@ -115,6 +161,7 @@ async fn build_rocket(
         .manage(settings.jwt.clone())
         .manage(settings.mqtt.clone())
         .attach(Cors)
+        .attach(RequestLogger)
         .mount("/", remipedia::api::routes::health::routes())
         .mount("/api/v1", routes())
         .mount("/", swagger_ui())

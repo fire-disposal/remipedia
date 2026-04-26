@@ -7,8 +7,9 @@ use utoipa::OpenApi;
 use uuid::Uuid;
 
 use crate::api::guards::ModuleGuard;
+use crate::core::entity::Patient;
 use crate::dto::request::{CreatePatientRequest, CreatePatientProfileRequest, PatientQuery, UpdatePatientRequest};
-use crate::dto::response::{PatientDetailResponse, PatientListResponse, PatientResponse, PatientProfileResponse};
+use crate::dto::response::{PatientDetailResponse, PatientListResponse, PatientProfileResponse};
 use crate::dto::response::DeviceResponse;
 use crate::errors::{AppError, AppResult};
 use crate::service::PatientService;
@@ -23,7 +24,7 @@ use crate::service::PatientService;
     ),
     request_body = CreatePatientRequest,
     responses(
-        (status = 201, description = "创建成功", body = PatientResponse),
+        (status = 201, description = "创建成功", body = Patient),
         (status = 400, description = "验证失败"),
     )
 )]
@@ -32,7 +33,7 @@ pub async fn create_patient(
     pool: &State<PgPool>,
     _guard: ModuleGuard,
     req: Json<CreatePatientRequest>,
-) -> AppResult<(Status, Json<PatientResponse>)> {
+) -> AppResult<(Status, Json<Patient>)> {
     let service = PatientService::new(pool);
     let response = service.create(req.into_inner()).await?;
     Ok((Status::Created, Json(response)))
@@ -50,7 +51,7 @@ pub async fn create_patient(
         ("id" = String, Path, description = "患者ID")
     ),
     responses(
-        (status = 200, description = "获取成功", body = PatientResponse),
+        (status = 200, description = "获取成功", body = Patient),
         (status = 404, description = "患者不存在"),
     )
 )]
@@ -59,7 +60,7 @@ pub async fn get_patient(
     pool: &State<PgPool>,
     _guard: ModuleGuard,
     id: &str,
-) -> AppResult<Json<PatientResponse>> {
+) -> AppResult<Json<Patient>> {
     let id = Uuid::parse_str(id).map_err(|_| AppError::ValidationError("无效的患者 ID".into()))?;
     let service = PatientService::new(pool);
     let response = service.get_by_id(&id).await?;
@@ -137,7 +138,7 @@ pub async fn get_patient_devices(
     ),
     request_body = UpdatePatientRequest,
     responses(
-        (status = 200, description = "更新成功", body = PatientResponse),
+        (status = 200, description = "更新成功", body = Patient),
         (status = 404, description = "患者不存在"),
     )
 )]
@@ -147,7 +148,7 @@ pub async fn update_patient(
     _guard: ModuleGuard,
     id: &str,
     req: Json<UpdatePatientRequest>,
-) -> AppResult<Json<PatientResponse>> {
+) -> AppResult<Json<Patient>> {
     let id = Uuid::parse_str(id).map_err(|_| AppError::ValidationError("无效的患者 ID".into()))?;
     let service = PatientService::new(pool);
     let response = service.update(&id, req.into_inner()).await?;

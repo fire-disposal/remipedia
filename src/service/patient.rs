@@ -2,13 +2,13 @@ use log::info;
 use sqlx::PgPool;
 use uuid::Uuid;
 
-use crate::core::entity::{NewPatient, NewPatientProfile};
+use crate::core::entity::{NewPatient, NewPatientProfile, Patient};
 use crate::dto::request::{
     CreatePatientProfileRequest, CreatePatientRequest, PatientQuery, UpdatePatientRequest,
 };
 use crate::dto::response::{
-    BindingInfo, DeviceResponse, Pagination, PatientDetailResponse, PatientListResponse, 
-    PatientProfileResponse, PatientResponse, PatientStatsResponse,
+    BindingInfo, DeviceResponse, Pagination, PatientDetailResponse, PatientListResponse,
+    PatientProfileResponse, PatientStatsResponse,
 };
 use crate::errors::{AppError, AppResult};
 use crate::repository::{BindingRepository, DeviceRepository, PatientRepository};
@@ -29,7 +29,7 @@ impl<'a> PatientService<'a> {
     }
 
     /// 创建患者
-    pub async fn create(&self, req: CreatePatientRequest) -> AppResult<PatientResponse> {
+    pub async fn create(&self, req: CreatePatientRequest) -> AppResult<Patient> {
         // 检查外部 ID 是否已存在
         if let Some(ref external_id) = req.external_id {
             if self
@@ -65,9 +65,9 @@ impl<'a> PatientService<'a> {
     }
 
     /// 获取患者
-    pub async fn get_by_id(&self, id: &Uuid) -> AppResult<PatientResponse> {
+    pub async fn get_by_id(&self, id: &Uuid) -> AppResult<Patient> {
         let patient = self.patient_repo.find_by_id(id).await?;
-        Ok(patient.into())
+        Ok(patient)
     }
 
     /// 获取患者详情（含档案）
@@ -86,7 +86,7 @@ impl<'a> PatientService<'a> {
     }
 
     /// 更新患者
-    pub async fn update(&self, id: &Uuid, req: UpdatePatientRequest) -> AppResult<PatientResponse> {
+    pub async fn update(&self, id: &Uuid, req: UpdatePatientRequest) -> AppResult<Patient> {
         let patient = self
             .patient_repo
             .update(id, req.name.as_deref(), req.external_id.as_deref())
@@ -94,7 +94,7 @@ impl<'a> PatientService<'a> {
 
         info!("患者更新成功: patient_id={}", id);
 
-        Ok(patient.into())
+        Ok(patient)
     }
 
     /// 查询患者列表
@@ -119,10 +119,8 @@ impl<'a> PatientService<'a> {
             .count(query.name.as_deref(), query.external_id.as_deref())
             .await?;
 
-        let data: Vec<PatientResponse> = patients.into_iter().map(|p| p.into()).collect();
-
         Ok(PatientListResponse {
-            data,
+            data: patients,
             pagination: Pagination::new(page, page_size, total),
         })
     }
@@ -137,7 +135,7 @@ impl<'a> PatientService<'a> {
     /// 获取患者绑定的设备列表
     pub async fn get_patient_devices(&self, patient_id: &Uuid, active_only: bool) -> AppResult<Vec<DeviceResponse>> {
         self.patient_repo.find_by_id(patient_id).await?;
-        
+
         let bindings: Vec<crate::core::entity::Binding> = if active_only {
             self.binding_repo.find_active_by_patient(patient_id).await?
                 .map(|b| vec![b])
@@ -247,18 +245,6 @@ impl<'a> PatientService<'a> {
 }
 
 // 实体到响应的转换
-impl From<crate::core::entity::Patient> for PatientResponse {
-    fn from(patient: crate::core::entity::Patient) -> Self {
-        Self {
-            id: patient.id,
-            name: patient.name,
-            external_id: patient.external_id,
-            created_at: patient.created_at,
-            updated_at: patient.updated_at,
-        }
-    }
-}
-
 impl From<crate::core::entity::PatientProfile> for PatientProfileResponse {
     fn from(profile: crate::core::entity::PatientProfile) -> Self {
         Self {

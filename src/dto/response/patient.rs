@@ -4,21 +4,7 @@ use utoipa::ToSchema;
 use uuid::Uuid;
 
 use super::Pagination;
-
-/// 患者响应
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
-pub struct PatientResponse {
-    /// 患者ID
-    pub id: Uuid,
-    /// 患者姓名
-    pub name: String,
-    /// 外部ID
-    pub external_id: Option<String>,
-    /// 创建时间
-    pub created_at: DateTime<Utc>,
-    /// 更新时间
-    pub updated_at: DateTime<Utc>,
-}
+use crate::core::entity::Patient;
 
 /// 患者详情响应（含档案）
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
@@ -70,7 +56,7 @@ pub struct PatientProfileResponse {
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct PatientListResponse {
     /// 患者列表
-    pub data: Vec<PatientResponse>,
+    pub data: Vec<Patient>,
     /// 分页信息
     pub pagination: Pagination,
 }

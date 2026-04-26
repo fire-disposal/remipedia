@@ -1,0 +1,193 @@
+@startuml Remipedia 后端架构（精简版）
+'
+' 核心思路：所有设备数据汇聚为统一 DataPoint，经五层管道入库
+'
+
+skinparam packageStyle rectangle
+skinparam classFontSize 13
+skinparam classFontName Consolas
+skinparam defaultFontName Microsoft YaHei
+skinparam backgroundColor #FAFAFA
+skinparam arrowThickness 2
+skinparam roundCorner 8
+
+' ============================================
+' 顶层注释 - 核心数据流
+' ============================================
+
+title **基于数字生物标记物的阿尔茨海默病早期筛查系统 后端架构**
+
+' ============================================
+' 五层包（从右到左：数据产生 → 数据消费）
+' ============================================
+
+package "⑤ 设备接入层\nIngest" as ingest_pkg #E8D0FF {
+    interface "IngestModule" as IM {
+        +start(pool)
+        +name() -> &str
+    }
+    class "ModuleRegistry" as MR {
+        +register(module)
+        +start_all(pool)
+    }
+
+    class "MattressModule" as MM {
+        协议: TCP + Msgpack
+        端口: 9001
+        业务: 心率/呼吸/离床/呼吸暂停
+    }
+    class "VisionModule" as VM {
+        协议: MQTT + JSON
+        主题: device/vision/{id}/detect
+        业务: 跌倒/徘徊/访客检测
+    }
+    class "ImuModule" as IMU {
+        协议: MQTT + JSON
+        主题: device/imu/{id}/data
+        业务: 加速度/陀螺仪/跌倒检测算法
+    }
+
+    MM ..|> IM
+    VM ..|> IM
+    IMU ..|> IM
+    MR --> IM : 管理
+}
+
+package "④ 领域模型层\nCore / Entity" as core_pkg #FFF3B0 {
+    class "DataPoint ★" as DP {
+        ★ 统一数据入口 ★
+        --
+        time: DateTime
+        device_id: Uuid
+        patient_id: Uuid
+        data_type: String
+        data_category: DataCategory
+        value_numeric: Option<f64>
+        severity: Option<Severity>
+        status: Option<EventStatus>
+        payload: JsonValue   ← 扩展负载
+        source: String
+    }
+    class "Datasheet" as DS <<DB>> {
+        数据库对应: datasheet 表
+        主键: (time, device_id)
+        触发器: 自动填充 patient_id
+    }
+
+    package "值对象" as vo {
+        enum "DataCategory" as DC {
+            Metric ← 指标(连续)
+            Event  ← 事件(离散)
+        }
+        enum "Severity" as SE {
+            Info
+            Warning
+            Alert
+        }
+        enum "EventStatus" as ES {
+            Active
+            Acknowledged
+            Resolved
+        }
+    }
+
+    DP --> DC
+    DP --> SE
+    DP --> ES
+    DP --> DS : INSERT / SELECT
+}
+
+package "③ 数据访问层\nRepository" as repo_pkg #C8E6FF {
+    class "DataRepository" as DR {
+        +insert_datapoint(DataPoint) → Datasheet
+        +insert_datapoints(&[DataPoint]) → Vec<Datasheet>
+        +query(DataQuery) → Vec<Datasheet>
+        +acknowledge_event() / resolve_event()
+    }
+    class "RawDataRepository" as RR {
+        +archive_raw(source, payload) → Uuid
+        +mark_status(id, status)
+    }
+    class "其他 Repository" as OR {
+        DeviceRepository
+        BindingRepository
+        PatientRepository
+        UserRepository
+    }
+}
+
+package "② 业务服务层\nService" as service_pkg #C8F7C5 {
+    class "DataService" as DSvc {
+        核心: 编排数据入库与查询
+        --
+        +ingest() / report_http()
+        +query() / query_alerts()
+        +acknowledge_event() / resolve_event()
+    }
+    class "IngestRawService" as IRSvc {
+        核心: 原始数据归档管理
+        --
+        +query() / get_detail() / export_csv()
+    }
+    class "其他 Service" as OSvc {
+        AuthService / BindingService
+        DeviceService / PatientService
+    }
+}
+
+package "① API 层\nRoutes + DTO" as api_pkg #FFD0D0 {
+    class "DataRoutes" as DataR {
+        POST /data          ← 数据上报
+        GET  /data          ← 数据查询
+        GET  /data/alerts   ← 活跃告警
+    }
+    class "IngestRoutes" as IngestR {
+        GET /ingest/mqtt/protocol  ← 协议文档
+        GET /ingest/raw            ← 原始数据查询
+    }
+    class "HealthRoutes" as HealthR {
+        GET /health /ready /live
+    }
+
+    package "DTO" as dto {
+        class "Request DTO" as ReqDTO {
+            DataReportRequest
+            DataQuery / AlertQuery
+            RawDataQuery
+        }
+        class "Response DTO" as RespDTO {
+            DataRecordResponse
+            DataQueryResponse
+            RawDataDetailResponse
+        }
+    }
+}
+
+' ============================================
+' 核心依赖关系
+' ============================================
+
+' ★ 核心数据流（粗箭头）：所有设备 → DataPoint → 数据库 → API
+MM ..> DP : "解析→生成" <<produces>>
+VM ..> DP : "解析→生成" <<produces>>
+IMU ..> DP : "解析→生成" <<produces>>
+
+DP --> DR : insert
+DR --> DS : 持久化
+DS --> DR : 查询返回
+
+DSvc --> DR : 调用
+DSvc --> DP : 构造
+IRSvc --> RR : 调用
+
+DataR --> DSvc : 委托
+IngestR --> IRSvc : 委托
+
+DataR ..> ReqDTO : 接收
+DataR ..> RespDTO : 返回
+
+' 支持层依赖
+DSvc --> OR : 设备/绑定验证
+DSvc --> DP : 转换 Datasheet → DataRecordResponse
+
+@enduml

@@ -5,10 +5,12 @@
 
 pub mod imu;
 pub mod mattress;
+pub mod mqtt_runner;
 pub mod vision;
 
 use async_trait::async_trait;
 use sqlx::PgPool;
+use uuid::Uuid;
 use crate::errors::AppResult;
 
 /// Ingest模块统一接口
@@ -60,6 +62,45 @@ impl Default for ModuleRegistry {
     fn default() -> Self {
         Self::new()
     }
+}
+
+// ---------------------------------------------------------------------------
+// 共享工具函数
+// ---------------------------------------------------------------------------
+
+/// 解析或自动注册设备。
+///
+/// 所有 ingest 模块共用此函数，避免三份重复实现。
+/// - `device_type`：如 `"vision_camera"`、`"imu_sensor"`、`"smart_mattress"`
+/// - `metadata`：可选设备元数据（视觉/IMU 模块会传入传感器能力描述）
+pub async fn resolve_or_create_device(
+    pool: &PgPool,
+    device_id: &str,
+    device_type: &str,
+    metadata: Option<serde_json::Value>,
+) -> AppResult<Uuid> {
+    use crate::repository::DeviceRepository;
+    use crate::core::entity::NewDevice;
+
+    let repo = DeviceRepository::new(pool);
+
+    // 先尝试按 serial_number 查找
+    if let Some(device) = repo.find_by_serial(device_id).await? {
+        return Ok(device.id);
+    }
+
+    // 不存在则自动创建
+    let new_device = NewDevice {
+        serial_number: device_id.to_string(),
+        device_type: device_type.to_string(),
+        status: "active".to_string(),
+        firmware_version: None,
+        metadata,
+    };
+
+    let device = repo.insert(&new_device).await?;
+    log::info!("自动注册设备 [{}]: {} -> {}", device_type, device_id, device.id);
+    Ok(device.id)
 }
 
 // 为具体模块实现IngestModule trait

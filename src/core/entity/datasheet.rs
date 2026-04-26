@@ -1,6 +1,7 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
+use utoipa::ToSchema;
 use uuid::Uuid;
 
 /// 数据分类
@@ -99,8 +100,8 @@ impl std::str::FromStr for EventStatus {
     }
 }
 
-/// 统一数据实体（指标 + 事件）
-#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
+/// 统一数据实体（指标 + 事件），同时作为API响应体
+#[derive(Debug, Clone, Serialize, Deserialize, FromRow, ToSchema)]
 pub struct Datasheet {
     pub time: DateTime<Utc>,
     pub device_id: Option<Uuid>,  // 改为可选

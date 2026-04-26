@@ -3,9 +3,9 @@ use log::info;
 use sqlx::PgPool;
 use uuid::Uuid;
 
-use crate::core::entity::NewBinding;
+use crate::core::entity::{Binding, NewBinding};
 use crate::dto::request::{CreateBindingRequest, EndBindingRequest, SwitchBindingRequest};
-use crate::dto::response::{BindingListResponse, BindingResponse, Pagination};
+use crate::dto::response::{BindingListResponse, Pagination};
 use crate::errors::{AppError, AppResult};
 use crate::repository::{BindingRepository, DeviceRepository, PatientRepository};
 
@@ -25,7 +25,7 @@ impl<'a> BindingService<'a> {
     }
 
     /// 创建绑定
-    pub async fn bind(&self, req: CreateBindingRequest) -> AppResult<BindingResponse> {
+    pub async fn bind(&self, req: CreateBindingRequest) -> AppResult<Binding> {
         // 验证设备存在
         self.device_repo.find_by_id(&req.device_id).await?;
 
@@ -39,7 +39,7 @@ impl<'a> BindingService<'a> {
             .await?
             .is_some()
         {
-            return Err(AppError::BindingAlreadyExists);
+            return Err(AppError::Conflict("该设备已绑定".into()));
         }
 
         let binding = self
@@ -56,7 +56,7 @@ impl<'a> BindingService<'a> {
             binding.id, binding.device_id, binding.patient_id
         );
 
-        Ok(binding.into())
+        Ok(binding)
     }
 
     /// 解除绑定
@@ -69,9 +69,9 @@ impl<'a> BindingService<'a> {
     }
 
     /// 获取单个绑定
-    pub async fn get_by_id(&self, binding_id: &Uuid) -> AppResult<BindingResponse> {
+    pub async fn get_by_id(&self, binding_id: &Uuid) -> AppResult<Binding> {
         let binding = self.binding_repo.find_by_id(binding_id).await?;
-        Ok(binding.into())
+        Ok(binding)
     }
 
     /// 获取设备当前绑定的患者 ID
@@ -96,10 +96,8 @@ impl<'a> BindingService<'a> {
             .await?;
         let total = self.binding_repo.count_by_device(device_id).await?;
 
-        let data: Vec<BindingResponse> = bindings.into_iter().map(|b| b.into()).collect();
-
         Ok(BindingListResponse {
-            data,
+            data: bindings,
             pagination: Pagination::new(page, page_size, total),
         })
     }
@@ -120,10 +118,8 @@ impl<'a> BindingService<'a> {
             .await?;
         let total = self.binding_repo.count_by_patient(patient_id).await?;
 
-        let data: Vec<BindingResponse> = bindings.into_iter().map(|b| b.into()).collect();
-
         Ok(BindingListResponse {
-            data,
+            data: bindings,
             pagination: Pagination::new(page, page_size, total),
         })
     }
@@ -132,9 +128,9 @@ impl<'a> BindingService<'a> {
     pub async fn get_current_binding(
         &self,
         device_id: &Uuid,
-    ) -> AppResult<Option<BindingResponse>> {
+    ) -> AppResult<Option<Binding>> {
         let binding = self.binding_repo.find_active_by_device(device_id).await?;
-        Ok(binding.map(|b| b.into()))
+        Ok(binding)
     }
 
     /// 查询绑定列表
@@ -158,19 +154,17 @@ impl<'a> BindingService<'a> {
             .count_query(device_id, patient_id, active_only)
             .await?;
 
-        let data: Vec<BindingResponse> = bindings.into_iter().map(|b| b.into()).collect();
-
         Ok(BindingListResponse {
-            data,
+            data: bindings,
             pagination: Pagination::new(page, page_size, total),
         })
     }
 
     /// 结束绑定（显式结束）
-    pub async fn end_binding(&self, binding_id: &Uuid, req: EndBindingRequest) -> AppResult<BindingResponse> {
+    pub async fn end_binding(&self, binding_id: &Uuid, req: EndBindingRequest) -> AppResult<Binding> {
         // 验证绑定存在
         let binding = self.binding_repo.find_by_id(binding_id).await?;
-        
+
         // 检查是否已结束
         if binding.ended_at.is_some() {
             return Err(AppError::ValidationError("绑定已经结束".into()));
@@ -180,22 +174,22 @@ impl<'a> BindingService<'a> {
         self.binding_repo
             .end_binding(binding_id, Utc::now())
             .await?;
-        
+
         // 更新备注（如果提供了）
         if req.notes.is_some() {
             self.binding_repo.update_notes(binding_id, req.notes.as_deref()).await?;
         }
 
         info!("绑定结束成功: binding_id={}", binding_id);
-        
+
         // 重新获取更新后的绑定
         let updated = self.binding_repo.find_by_id(binding_id).await?;
-        Ok(updated.into())
+        Ok(updated)
     }
 
     /// 切换绑定（强制换绑）
     /// 结束当前绑定并创建新绑定
-    pub async fn switch_binding(&self, req: SwitchBindingRequest) -> AppResult<BindingResponse> {
+    pub async fn switch_binding(&self, req: SwitchBindingRequest) -> AppResult<Binding> {
         // 验证设备存在
         self.device_repo.find_by_id(&req.device_id).await?;
 
@@ -225,20 +219,6 @@ impl<'a> BindingService<'a> {
             req.device_id, req.new_patient_id
         );
 
-        Ok(new_binding.into())
-    }
-}
-
-// 实体到响应的转换
-impl From<crate::core::entity::Binding> for BindingResponse {
-    fn from(binding: crate::core::entity::Binding) -> Self {
-        Self {
-            id: binding.id,
-            device_id: binding.device_id,
-            patient_id: binding.patient_id,
-            started_at: binding.started_at,
-            ended_at: binding.ended_at,
-            notes: binding.notes,
-        }
+        Ok(new_binding)
     }
 }

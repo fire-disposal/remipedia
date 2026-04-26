@@ -3,7 +3,6 @@ use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
 use uuid::Uuid;
 
-use crate::dto::convert::IntoResponse;
 use crate::dto::response::UserResponse;
 use crate::errors::AppResult;
 use crate::repository::RoleRepository;
@@ -35,13 +34,9 @@ pub struct NewUser {
     pub email: Option<String>,
 }
 
-impl IntoResponse for User {
-    type Response = UserResponse;
-
-    async fn into_response(
-        self,
-        role_repo: &RoleRepository<'_>,
-    ) -> AppResult<UserResponse> {
+impl User {
+    /// 将User实体转换为UserResponse
+    pub async fn to_response(self, role_repo: &RoleRepository<'_>) -> AppResult<UserResponse> {
         let role_name = match role_repo.find_by_id(&self.role_id).await? {
             Some(role) => role.name,
             None => "unknown".to_string(),

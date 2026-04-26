@@ -1,6 +1,7 @@
 #[cfg(test)]
 mod tests {
-    use crate::core::entity::{NewRole, PermissionKey, Role, UpdateRole};
+    use crate::core::entity::{NewRole, Role, UpdateRole};
+    use crate::core::value_object::PermissionKey;
     use chrono::Utc;
     use uuid::Uuid;
 

@@ -6,22 +6,24 @@ mod tests {
     #[test]
     fn test_app_error_display() {
         let errors = vec![
-            (AppError::NotFound("user".to_string()), "实体未找到: user"),
+            (AppError::NotFound("user".to_string()), "未找到: user"),
             (
                 AppError::ValidationError("invalid input".to_string()),
-                "验证失败: invalid input",
+                "请求无效: invalid input",
             ),
             (
                 AppError::Unauthorized("token expired".to_string()),
                 "认证失败: token expired",
             ),
             (AppError::Forbidden, "权限不足"),
-            (AppError::InvalidPassword, "密码错误"),
-            (AppError::UsernameExists, "用户名已存在"),
-            (AppError::DeviceNotBound, "设备未绑定"),
-            (AppError::BindingAlreadyExists, "绑定已存在"),
-            (AppError::UuidError, "UUID 解析错误"),
-            (AppError::InternalError, "内部错误"),
+            (
+                AppError::Conflict("用户名已存在".to_string()),
+                "资源冲突: 用户名已存在",
+            ),
+            (
+                AppError::InternalError("内部错误".to_string()),
+                "内部错误: 内部错误",
+            ),
         ];
 
         for (error, expected) in errors {
@@ -33,7 +35,6 @@ mod tests {
     /// 测试从 uuid::Error 转换
     #[test]
     fn test_uuid_error_conversion() {
-        // 创建一个无效的 UUID 字符串来触发解析错误
         let result: Result<uuid::Uuid, _> = "not-a-uuid".parse();
         assert!(result.is_err());
 
@@ -41,8 +42,8 @@ mod tests {
         let app_error: AppError = uuid_error.into();
 
         match app_error {
-            AppError::UuidError => (), // 期望的结果
-            _ => panic!("Expected UuidError"),
+            AppError::ValidationError(_) => (), // 合并后为 ValidationError
+            _ => panic!("Expected ValidationError"),
         }
     }
 
@@ -53,7 +54,7 @@ mod tests {
         let app_error: AppError = sqlx_error.into();
 
         match app_error {
-            AppError::DatabaseError(_) => (), // 期望的结果
+            AppError::DatabaseError(_) => (),
             _ => panic!("Expected DatabaseError"),
         }
     }
@@ -66,7 +67,10 @@ mod tests {
             AppError::NotFound(_)
         ));
         assert!(matches!(AppError::Forbidden, AppError::Forbidden));
-        assert!(matches!(AppError::InternalError, AppError::InternalError));
+        assert!(matches!(
+            AppError::InternalError("err".to_string()),
+            AppError::InternalError(_)
+        ));
     }
 
     /// 测试错误消息包含预期内容

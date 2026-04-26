@@ -4,11 +4,11 @@
 //! 包含：MQTT订阅 + JSON解析 + 运动分析
 
 use crate::core::entity::{DataPoint, DataCategory, Severity};
-use crate::errors::AppResult;
+use crate::errors::{AppError, AppResult};
+use crate::ingest::modules::mqtt_runner;
 use crate::repository::{DataRepository, RawDataRepository};
-use rumqttc::{AsyncClient, Event, Incoming, MqttOptions};
+use rumqttc::{Event, Incoming};
 use sqlx::PgPool;
-use std::time::Duration;
 use uuid::Uuid;
 
 /// IMU模块配置
@@ -125,57 +125,31 @@ impl ImuModule {
         );
 
         let pool = pool.clone();
-        let broker = self.config.mqtt_broker.clone();
-        let port = self.config.mqtt_port;
-        let client_id = self.config.client_id.clone();
-        let topic = self.config.mqtt_topic.clone();
-        let qos = self.config.qos;
         let config = self.config.clone();
+        let params = mqtt_runner::MqttParams {
+            client_id: self.config.client_id.clone(),
+            broker: self.config.mqtt_broker.clone(),
+            port: self.config.mqtt_port,
+            topic: self.config.mqtt_topic.clone(),
+            qos: self.config.qos,
+        };
 
-        tokio::spawn(async move {
-            loop {
-                match Self::run_mqtt_client(&pool, &broker, port, &client_id, &topic, qos, &config).await {
-                    Ok(_) => {
-                        log::info!("IMU模块MQTT客户端正常退出");
-                        break;
-                    }
-                    Err(e) => {
-                        log::error!("IMU模块MQTT客户端错误: {}, 5秒后重连...", e);
-                        tokio::time::sleep(Duration::from_secs(5)).await;
-                    }
-                }
-            }
+        mqtt_runner::spawn_mqtt_task("imu".to_string(), params, move |p| {
+            let pool = pool.clone();
+            let config = config.clone();
+            async move { Self::run(pool, config, p).await }
         });
 
         Ok(())
     }
 
-    /// 运行MQTT客户端
-    async fn run_mqtt_client(
-        pool: &PgPool,
-        broker: &str,
-        port: u16,
-        client_id: &str,
-        topic: &str,
-        qos: rumqttc::QoS,
-        config: &ImuConfig,
-    ) -> AppResult<()> {
-        let mut mqttoptions = MqttOptions::new(client_id, broker, port);
-        mqttoptions.set_keep_alive(Duration::from_secs(30));
-        mqttoptions.set_clean_session(false);
-
-        let (client, mut eventloop) = AsyncClient::new(mqttoptions, 100);
-
-        // 订阅主题
-        client.subscribe(topic, qos).await
-            .map_err(|e| crate::errors::AppError::ValidationError(format!("订阅失败: {}", e)))?;
-
-        log::info!("IMU模块已订阅: {}", topic);
+    /// 运行 MQTT 事件循环（含 IMU 状态管理）
+    async fn run(pool: PgPool, config: ImuConfig, params: mqtt_runner::MqttParams) -> AppResult<()> {
+        let (_, mut eventloop) = mqtt_runner::connect_and_subscribe(&params).await?;
 
         // 状态管理（按设备ID）
         let mut states: std::collections::HashMap<String, ImuState> = std::collections::HashMap::new();
 
-        // 消息处理循环
         loop {
             match eventloop.poll().await {
                 Ok(Event::Incoming(Incoming::Publish(publish))) => {
@@ -203,7 +177,7 @@ impl ImuModule {
                 Ok(_) => {}
                 Err(e) => {
                     log::error!("IMU模块MQTT错误: {}", e);
-                    return Err(crate::errors::AppError::ValidationError(format!("MQTT错误: {}", e)));
+                    return Err(AppError::ValidationError(format!("MQTT错误: {}", e)));
                 }
             }
         }
@@ -438,31 +412,13 @@ fn process_imu_data(
     points
 }
 
-/// 解析或创建设备
+/// 解析或创建设备 (委托给共享实现)
 async fn resolve_or_create_device(pool: &PgPool, device_id_str: &str) -> AppResult<Uuid> {
-    use crate::repository::DeviceRepository;
-    use crate::core::entity::NewDevice;
-
-    let repo = DeviceRepository::new(pool);
-    
-    if let Some(device) = repo.find_by_serial(device_id_str).await? {
-        return Ok(device.id);
-    }
-    
-    let new_device = NewDevice {
-        serial_number: device_id_str.to_string(),
-        device_type: "imu_sensor".to_string(),
-        status: "active".to_string(),
-        firmware_version: None,
-        metadata: Some(serde_json::json!({
-            "capabilities": ["fall_detection", "activity_monitoring"],
-            "sensors": ["accelerometer", "gyroscope"]
-        })),
-    };
-    
-    let device = repo.insert(&new_device).await?;
-    log::info!("自动注册IMU设备: {} -> {}", device_id_str, device.id);
-    Ok(device.id)
+    let metadata = Some(serde_json::json!({
+        "capabilities": ["fall_detection", "activity_monitoring"],
+        "sensors": ["accelerometer", "gyroscope"]
+    }));
+    crate::ingest::modules::resolve_or_create_device(pool, device_id_str, "imu_sensor", metadata).await
 }
 
 #[cfg(test)]

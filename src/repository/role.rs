@@ -83,4 +83,123 @@ impl<'a> RoleRepository<'a> {
             .map_err(AppError::DatabaseError)?;
         Ok(())
     }
+
+    // ============================================
+    // 角色-模块代码相关 (替代 ModulePermissionRepository)
+    // ============================================
+
+    /// 获取角色可访问的模块代码列表
+    pub async fn get_role_module_codes(&self, role_id: &Uuid) -> AppResult<Vec<String>> {
+        let modules: Vec<(String,)> = sqlx::query_as(
+            r#"SELECT module_code FROM role_modules
+               WHERE role_id = $1
+               ORDER BY module_code"#,
+        )
+        .bind(role_id)
+        .fetch_all(self.pool)
+        .await
+        .map_err(AppError::DatabaseError)?;
+
+        Ok(modules.into_iter().map(|m| m.0).collect())
+    }
+
+    /// 检查角色是否为系统角色
+    pub async fn is_system_role(&self, role_id: &Uuid) -> AppResult<bool> {
+        let result: Option<(bool,)> = sqlx::query_as(
+            "SELECT is_system FROM roles WHERE id = $1"
+        )
+        .bind(role_id)
+        .fetch_optional(self.pool)
+        .await
+        .map_err(AppError::DatabaseError)?;
+
+        Ok(result.map(|r| r.0).unwrap_or(false))
+    }
+
+    /// 获取角色可访问的模块（含系统角色通配判断）
+    pub async fn get_accessible_modules(&self, role_id: &Uuid) -> AppResult<(bool, Vec<String>)> {
+        let is_system = self.is_system_role(role_id).await?;
+
+        if is_system {
+            return Ok((true, vec!["*".to_string()]));
+        }
+
+        let module_codes = self.get_role_module_codes(role_id).await?;
+        Ok((false, module_codes))
+    }
+
+    /// 为角色分配模块代码
+    pub async fn assign_module_code(&self, role_id: &Uuid, module_code: &str) -> AppResult<()> {
+        sqlx::query(
+            r#"INSERT INTO role_modules (role_id, module_code) 
+               VALUES ($1, $2)
+               ON CONFLICT (role_id, module_code) DO NOTHING"#,
+        )
+        .bind(role_id)
+        .bind(module_code)
+        .execute(self.pool)
+        .await
+        .map_err(AppError::DatabaseError)?;
+
+        Ok(())
+    }
+
+    /// 移除角色的模块代码
+    pub async fn revoke_module_code(&self, role_id: &Uuid, module_code: &str) -> AppResult<()> {
+        sqlx::query(
+            r#"DELETE FROM role_modules 
+               WHERE role_id = $1 AND module_code = $2"#,
+        )
+        .bind(role_id)
+        .bind(module_code)
+        .execute(self.pool)
+        .await
+        .map_err(AppError::DatabaseError)?;
+
+        Ok(())
+    }
+
+    /// 批量设置角色的模块代码（替换式）
+    pub async fn set_role_module_codes(&self, role_id: &Uuid, module_codes: &[String]) -> AppResult<()> {
+        let mut tx = self.pool.begin().await.map_err(AppError::DatabaseError)?;
+
+        // 清空现有
+        sqlx::query("DELETE FROM role_modules WHERE role_id = $1")
+            .bind(role_id)
+            .execute(&mut *tx)
+            .await
+            .map_err(AppError::DatabaseError)?;
+
+        // 批量插入
+        for code in module_codes {
+            sqlx::query(
+                r#"INSERT INTO role_modules (role_id, module_code)
+                   VALUES ($1, $2)"#,
+            )
+            .bind(role_id)
+            .bind(code)
+            .execute(&mut *tx)
+            .await
+            .map_err(AppError::DatabaseError)?;
+        }
+
+        tx.commit().await.map_err(AppError::DatabaseError)?;
+        Ok(())
+    }
+
+    /// 批量分配模块代码
+    pub async fn batch_assign_module_codes(&self, role_id: &Uuid, module_codes: &[String]) -> AppResult<()> {
+        for code in module_codes {
+            self.assign_module_code(role_id, code).await?;
+        }
+        Ok(())
+    }
+
+    /// 批量移除模块代码
+    pub async fn batch_revoke_module_codes(&self, role_id: &Uuid, module_codes: &[String]) -> AppResult<()> {
+        for code in module_codes {
+            self.revoke_module_code(role_id, code).await?;
+        }
+        Ok(())
+    }
 }

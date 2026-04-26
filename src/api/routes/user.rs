@@ -6,7 +6,7 @@ use sqlx::PgPool;
 use utoipa::OpenApi;
 use uuid::Uuid;
 
-use crate::api::guards::SystemRoleGuard;
+use crate::api::guards::AuthenticatedUser;
 use crate::dto::request::{CreateUserRequest, UpdateUserRequest, UserQuery};
 use crate::dto::response::UserListResponse;
 use crate::dto::response::UserResponse;
@@ -31,9 +31,10 @@ use crate::service::UserService;
 #[post("/users", data = "<req>")]
 pub async fn create_user(
     pool: &State<PgPool>,
-    _guard: SystemRoleGuard,
+    user: AuthenticatedUser,
     req: Json<CreateUserRequest>,
 ) -> AppResult<(Status, Json<UserResponse>)> {
+    user.check_system_role()?;
     let service = UserService::new(pool);
     let response = service.create(req.into_inner()).await?;
     Ok((Status::Created, Json(response)))
@@ -58,9 +59,10 @@ pub async fn create_user(
 #[get("/users/<id>")]
 pub async fn get_user(
     pool: &State<PgPool>,
-    _guard: SystemRoleGuard,
+    user: AuthenticatedUser,
     id: &str,
 ) -> AppResult<Json<UserResponse>> {
+    user.check_system_role()?;
     let id = Uuid::parse_str(id).map_err(|_| AppError::ValidationError("无效的用户 ID".into()))?;
     let service = UserService::new(pool);
     let response = service.get_by_id(&id).await?;
@@ -87,10 +89,11 @@ pub async fn get_user(
 #[put("/users/<id>", data = "<req>")]
 pub async fn update_user(
     pool: &State<PgPool>,
-    _guard: SystemRoleGuard,
+    user: AuthenticatedUser,
     id: &str,
     req: Json<UpdateUserRequest>,
 ) -> AppResult<Json<UserResponse>> {
+    user.check_system_role()?;
     let id = Uuid::parse_str(id).map_err(|_| AppError::ValidationError("无效的用户 ID".into()))?;
     let service = UserService::new(pool);
     let response = service.update(&id, req.into_inner()).await?;
@@ -116,11 +119,12 @@ pub async fn update_user(
 #[delete("/users/<id>")]
 pub async fn delete_user(
     pool: &State<PgPool>,
-    guard: SystemRoleGuard,
+    user: AuthenticatedUser,
     id: &str,
 ) -> AppResult<Status> {
+    user.check_system_role()?;
     let id = Uuid::parse_str(id).map_err(|_| AppError::ValidationError("无效的用户 ID".into()))?;
-    if guard.0.id == id {
+    if user.id == id {
         return Err(AppError::ValidationError("不允许删除当前管理员账号".into()));
     }
     let service = UserService::new(pool);
@@ -149,12 +153,13 @@ pub async fn delete_user(
 #[get("/users?<role_id>&<status>&<page>&<page_size>")]
 pub async fn list_users(
     pool: &State<PgPool>,
-    _guard: SystemRoleGuard,
+    user: AuthenticatedUser,
     role_id: Option<String>,
     status: Option<String>,
     page: Option<u32>,
     page_size: Option<u32>,
 ) -> AppResult<Json<UserListResponse>> {
+    user.check_system_role()?;
     let service = UserService::new(pool);
     let query = UserQuery {
         role_id,

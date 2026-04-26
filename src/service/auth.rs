@@ -15,7 +15,7 @@ use crate::core::entity::NewRefreshToken;
 use crate::dto::request::{ChangePasswordRequest, LoginRequest, RefreshTokenRequest, RegisterRequest, RevokeTokenRequest, VerifyTokenRequest};
 use crate::dto::response::{LoginResponse, RefreshTokenResponse, RegisterResponse, RevokeResponse, SessionInfo, SessionListResponse, UserInfo, VerifyTokenResponse};
 use crate::errors::{AppError, AppResult};
-use crate::repository::{ModulePermissionRepository, RefreshTokenRepository, RoleRepository, UserRepository};
+use crate::repository::{RefreshTokenRepository, RoleRepository, UserRepository};
 
 const JWT_ISSUER: &str = "remipedia";
 const JWT_AUDIENCE: &str = "remipedia-api";
@@ -65,7 +65,6 @@ impl<'a> JwtVerifier<'a> {
 pub struct AuthService<'a> {
     user_repo: UserRepository<'a>,
     role_repo: RoleRepository<'a>,
-    module_perm_repo: ModulePermissionRepository<'a>,
     refresh_token_repo: RefreshTokenRepository<'a>,
     jwt_config: &'a JwtConfig,
 }
@@ -75,7 +74,6 @@ impl<'a> AuthService<'a> {
         Self {
             user_repo: UserRepository::new(pool),
             role_repo: RoleRepository::new(pool),
-            module_perm_repo: ModulePermissionRepository::new(pool),
             refresh_token_repo: RefreshTokenRepository::new(pool),
             jwt_config,
         }
@@ -107,9 +105,9 @@ impl<'a> AuthService<'a> {
         // 更新最后登录时间
         self.user_repo.update_last_login(&user.id).await?;
 
-        // 获取角色的模块权限
+        // 获取角色的模块权限（通过 RoleRepository）
         let (is_system_role, accessible_modules) = 
-            self.module_perm_repo.get_accessible_modules(&user.role_id).await?;
+            self.role_repo.get_accessible_modules(&user.role_id).await?;
 
         // 生成令牌
         let (access_token, expires_at) = self.generate_access_token(
@@ -167,9 +165,9 @@ impl<'a> AuthService<'a> {
         // 撤销旧的 refresh token
         self.refresh_token_repo.revoke(&token_hash).await?;
 
-        // 获取角色的模块权限
+        // 获取角色的模块权限（通过 RoleRepository）
         let (is_system_role, accessible_modules) = 
-            self.module_perm_repo.get_accessible_modules(&user.role_id).await?;
+            self.role_repo.get_accessible_modules(&user.role_id).await?;
 
         // 生成新的令牌
         let (access_token, expires_at) = self.generate_access_token(
@@ -234,9 +232,9 @@ impl<'a> AuthService<'a> {
         let role = self.role_repo.find_by_id(&user.role_id).await?;
         let role_name = role.map(|r| r.name).unwrap_or_else(|| "unknown".to_string());
         
-        // 获取模块权限
+        // 获取模块权限（通过 RoleRepository）
         let (is_system_role, accessible_modules) = 
-            self.module_perm_repo.get_accessible_modules(&user.role_id).await?;
+            self.role_repo.get_accessible_modules(&user.role_id).await?;
 
         Ok(UserInfo {
             id: user.id.to_string(),
@@ -297,9 +295,9 @@ impl<'a> AuthService<'a> {
         let role = self.role_repo.find_by_id(&user.role_id).await?;
         let role_name = role.map(|r| r.name).unwrap_or_else(|| "unknown".to_string());
         
-        // 获取模块权限
+        // 获取模块权限（通过 RoleRepository）
         let (is_system_role, accessible_modules) = 
-            self.module_perm_repo.get_accessible_modules(&user.role_id).await?;
+            self.role_repo.get_accessible_modules(&user.role_id).await?;
 
         info!("用户注册成功: user_id={}", user.id);
 

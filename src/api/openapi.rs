@@ -112,7 +112,7 @@ use utoipa_swagger_ui::SwaggerUi;
             // Entities (used as response schemas)
             crate::core::entity::Role,
             crate::dto::response::RoleListResponse,
-            crate::core::entity::Module,
+            crate::dto::response::ModuleInfo,
             crate::dto::response::ModuleListResponse,
             crate::dto::response::RoleModuleResponse,
             crate::core::entity::AuditLog,

@@ -6,11 +6,11 @@ use sqlx::PgPool;
 use utoipa::OpenApi;
 use uuid::Uuid;
 
-use crate::api::guards::SystemRoleGuard;
-use crate::core::entity::{AuditLog, Module, Role};
+use crate::api::guards::AuthenticatedUser;
+use crate::core::entity::{AuditLog, Role};
 use crate::dto::response::{
     AssignModuleRequest, AuditLogListResponse, AuditLogQueryParams, BatchAssignModulesRequest,
-    CreateRoleRequest, ModuleListResponse, RoleListResponse, RoleModuleResponse,
+    CreateRoleRequest, ModuleInfo, ModuleListResponse, RoleListResponse, RoleModuleResponse,
     SetRoleModulesRequest, UpdateRoleRequest,
 };
 use crate::errors::{AppError, AppResult};
@@ -32,8 +32,9 @@ use crate::service::AdminService;
 #[get("/admin/roles")]
 pub async fn list_roles(
     pool: &State<PgPool>,
-    _guard: SystemRoleGuard,
+    user: AuthenticatedUser,
 ) -> AppResult<Json<RoleListResponse>> {
+    user.check_system_role()?;
     let service = AdminService::new(pool);
     let response = service.list_roles().await?;
     Ok(Json(response))
@@ -59,9 +60,10 @@ pub async fn list_roles(
 #[get("/admin/roles/<id>")]
 pub async fn get_role(
     pool: &State<PgPool>,
-    _guard: SystemRoleGuard,
+    user: AuthenticatedUser,
     id: &str,
 ) -> AppResult<Json<Role>> {
+    user.check_system_role()?;
     let id = Uuid::parse_str(id).map_err(|_| AppError::ValidationError("无效的角色ID".into()))?;
     let service = AdminService::new(pool);
     let response = service.get_role(&id).await?;
@@ -86,9 +88,10 @@ pub async fn get_role(
 #[post("/admin/roles", data = "<req>")]
 pub async fn create_role(
     pool: &State<PgPool>,
-    _guard: SystemRoleGuard,
+    user: AuthenticatedUser,
     req: Json<CreateRoleRequest>,
 ) -> AppResult<(Status, Json<Role>)> {
+    user.check_system_role()?;
     let service = AdminService::new(pool);
     let response = service.create_role(req.name.clone(), req.description.clone()).await?;
     Ok((Status::Created, Json(response)))
@@ -116,10 +119,11 @@ pub async fn create_role(
 #[put("/admin/roles/<id>", data = "<req>")]
 pub async fn update_role(
     pool: &State<PgPool>,
-    _guard: SystemRoleGuard,
+    user: AuthenticatedUser,
     id: &str,
     req: Json<UpdateRoleRequest>,
 ) -> AppResult<Json<Role>> {
+    user.check_system_role()?;
     let id = Uuid::parse_str(id).map_err(|_| AppError::ValidationError("无效的角色ID".into()))?;
     let service = AdminService::new(pool);
     let response = service.update_role(&id, req.name.clone(), req.description.clone()).await?;
@@ -147,9 +151,10 @@ pub async fn update_role(
 #[delete("/admin/roles/<id>")]
 pub async fn delete_role(
     pool: &State<PgPool>,
-    _guard: SystemRoleGuard,
+    user: AuthenticatedUser,
     id: &str,
 ) -> AppResult<Status> {
+    user.check_system_role()?;
     let id = Uuid::parse_str(id).map_err(|_| AppError::ValidationError("无效的角色ID".into()))?;
     let service = AdminService::new(pool);
     service.delete_role(&id).await?;
@@ -176,9 +181,10 @@ pub async fn delete_role(
 #[get("/admin/roles/<id>/modules")]
 pub async fn get_role_modules(
     pool: &State<PgPool>,
-    _guard: SystemRoleGuard,
+    user: AuthenticatedUser,
     id: &str,
 ) -> AppResult<Json<RoleModuleResponse>> {
+    user.check_system_role()?;
     let id = Uuid::parse_str(id).map_err(|_| AppError::ValidationError("无效的角色ID".into()))?;
     let service = AdminService::new(pool);
     let response = service.get_role_modules(&id).await?;
@@ -199,34 +205,35 @@ pub async fn get_role_modules(
     request_body = AssignModuleRequest,
     responses(
         (status = 204, description = "分配成功"),
-        (status = 404, description = "角色或模块不存在"),
+        (status = 404, description = "角色不存在"),
         (status = 403, description = "无权限"),
     )
 )]
 #[post("/admin/roles/<id>/modules", data = "<req>")]
 pub async fn assign_module(
     pool: &State<PgPool>,
-    _guard: SystemRoleGuard,
+    user: AuthenticatedUser,
     id: &str,
     req: Json<AssignModuleRequest>,
 ) -> AppResult<Status> {
+    user.check_system_role()?;
     let id = Uuid::parse_str(id).map_err(|_| AppError::ValidationError("无效的角色ID".into()))?;
     let service = AdminService::new(pool);
-    service.assign_module(&id, &req.module_id).await?;
+    service.assign_module(&id, &req.module_code).await?;
     Ok(Status::NoContent)
 }
 
 /// 移除角色模块权限
 #[utoipa::path(
     delete,
-    path = "/admin/roles/{id}/modules/{module_id}",
+    path = "/admin/roles/{id}/modules/{module_code}",
     tag = "admin",
     security(
         ("bearer_auth" = [])
     ),
     params(
         ("id" = String, Path, description = "角色ID"),
-        ("module_id" = String, Path, description = "模块ID")
+        ("module_code" = String, Path, description = "模块代码")
     ),
     responses(
         (status = 204, description = "移除成功"),
@@ -234,18 +241,17 @@ pub async fn assign_module(
         (status = 403, description = "无权限"),
     )
 )]
-#[delete("/admin/roles/<id>/modules/<module_id>")]
+#[delete("/admin/roles/<id>/modules/<module_code>")]
 pub async fn revoke_module(
     pool: &State<PgPool>,
-    _guard: SystemRoleGuard,
+    user: AuthenticatedUser,
     id: &str,
-    module_id: &str,
+    module_code: &str,
 ) -> AppResult<Status> {
+    user.check_system_role()?;
     let id = Uuid::parse_str(id).map_err(|_| AppError::ValidationError("无效的角色ID".into()))?;
-    let module_id = Uuid::parse_str(module_id)
-        .map_err(|_| AppError::ValidationError("无效的模块ID".into()))?;
     let service = AdminService::new(pool);
-    service.revoke_module(&id, &module_id).await?;
+    service.revoke_module(&id, module_code).await?;
     Ok(Status::NoContent)
 }
 
@@ -270,13 +276,14 @@ pub async fn revoke_module(
 #[post("/admin/roles/<id>/modules/batch", data = "<req>")]
 pub async fn batch_assign_modules(
     pool: &State<PgPool>,
-    _guard: SystemRoleGuard,
+    user: AuthenticatedUser,
     id: &str,
     req: Json<BatchAssignModulesRequest>,
 ) -> AppResult<Status> {
+    user.check_system_role()?;
     let id = Uuid::parse_str(id).map_err(|_| AppError::ValidationError("无效的角色ID".into()))?;
     let service = AdminService::new(pool);
-    service.batch_assign_modules(&id, &req.module_ids).await?;
+    service.batch_assign_modules(&id, &req.module_codes).await?;
     Ok(Status::NoContent)
 }
 
@@ -301,13 +308,14 @@ pub async fn batch_assign_modules(
 #[put("/admin/roles/<id>/modules", data = "<req>")]
 pub async fn set_role_modules(
     pool: &State<PgPool>,
-    _guard: SystemRoleGuard,
+    user: AuthenticatedUser,
     id: &str,
     req: Json<SetRoleModulesRequest>,
 ) -> AppResult<Status> {
+    user.check_system_role()?;
     let id = Uuid::parse_str(id).map_err(|_| AppError::ValidationError("无效的角色ID".into()))?;
     let service = AdminService::new(pool);
-    service.set_role_modules(&id, &req.module_ids).await?;
+    service.set_role_modules(&id, &req.module_codes).await?;
     Ok(Status::NoContent)
 }
 
@@ -327,8 +335,9 @@ pub async fn set_role_modules(
 #[get("/admin/modules")]
 pub async fn list_modules(
     pool: &State<PgPool>,
-    _guard: SystemRoleGuard,
+    user: AuthenticatedUser,
 ) -> AppResult<Json<ModuleListResponse>> {
+    user.check_system_role()?;
     let service = AdminService::new(pool);
     let response = service.list_modules().await?;
     Ok(Json(response))
@@ -360,7 +369,7 @@ pub async fn list_modules(
 #[get("/admin/audit-logs?<user_id>&<action>&<resource>&<status>&<start_time>&<end_time>&<page>&<page_size>")]
 pub async fn list_audit_logs(
     pool: &State<PgPool>,
-    _guard: SystemRoleGuard,
+    user: AuthenticatedUser,
     user_id: Option<String>,
     action: Option<String>,
     resource: Option<String>,
@@ -370,6 +379,7 @@ pub async fn list_audit_logs(
     page: Option<u32>,
     page_size: Option<u32>,
 ) -> AppResult<Json<AuditLogListResponse>> {
+    user.check_system_role()?;
     let service = AdminService::new(pool);
 
     let user_id = user_id.and_then(|id| Uuid::parse_str(&id).ok());
@@ -414,9 +424,10 @@ pub async fn list_audit_logs(
 #[get("/admin/audit-logs/<id>")]
 pub async fn get_audit_log(
     pool: &State<PgPool>,
-    _guard: SystemRoleGuard,
+    user: AuthenticatedUser,
     id: &str,
 ) -> AppResult<Json<AuditLog>> {
+    user.check_system_role()?;
     let id = Uuid::parse_str(id).map_err(|_| AppError::ValidationError("无效的日志ID".into()))?;
     let service = AdminService::new(pool);
     let response = service.get_audit_log(&id).await?;
@@ -464,7 +475,7 @@ pub fn routes() -> Vec<rocket::Route> {
             RoleListResponse,
             CreateRoleRequest,
             UpdateRoleRequest,
-            Module,
+            ModuleInfo,
             ModuleListResponse,
             RoleModuleResponse,
             AssignModuleRequest,

@@ -6,7 +6,7 @@ use utoipa::{OpenApi, ToSchema};
 use uuid::Uuid;
 use serde::Deserialize;
 
-use crate::api::guards::ModuleGuard;
+use crate::api::guards::AuthenticatedUser;
 use crate::core::entity::Datasheet;
 use crate::dto::request::DataReportRequest;
 use crate::dto::response::{DataQueryResponse, DataReportResponse};
@@ -44,7 +44,7 @@ pub struct ResolveRequest {
 #[post("/data", data = "<req>")]
 pub async fn report_data(
     pool: &State<PgPool>,
-    _guard: ModuleGuard,
+    _user: AuthenticatedUser,
     req: Json<DataReportRequest>,
 ) -> AppResult<Json<DataReportResponse>> {
     let service = DataService::new(pool);
@@ -79,7 +79,7 @@ pub async fn report_data(
 #[get("/data?<patient_id>&<device_id>&<data_type>&<data_category>&<severity>&<status>&<start_time>&<end_time>&<page>&<page_size>")]
 pub async fn query_data(
     pool: &State<PgPool>,
-    _guard: ModuleGuard,
+    _user: AuthenticatedUser,
     patient_id: Option<String>,
     device_id: Option<String>,
     data_type: Option<String>,
@@ -139,7 +139,7 @@ pub async fn query_data(
 #[get("/data/alerts?<patient_id>&<data_type>&<severity>&<limit>")]
 pub async fn query_alerts(
     pool: &State<PgPool>,
-    _guard: ModuleGuard,
+    _user: AuthenticatedUser,
     patient_id: Option<String>,
     data_type: Option<String>,
     severity: Option<String>,
@@ -179,7 +179,7 @@ pub async fn query_alerts(
 #[post("/data/events/acknowledge", data = "<req>")]
 pub async fn acknowledge_event(
     pool: &State<PgPool>,
-    _guard: ModuleGuard,
+    _user: AuthenticatedUser,
     req: Json<AcknowledgeRequest>,
 ) -> AppResult<Json<Datasheet>> {
     let service = DataService::new(pool);
@@ -204,7 +204,7 @@ pub async fn acknowledge_event(
 #[post("/data/events/resolve", data = "<req>")]
 pub async fn resolve_event(
     pool: &State<PgPool>,
-    _guard: ModuleGuard,
+    _user: AuthenticatedUser,
     req: Json<ResolveRequest>,
 ) -> AppResult<Json<Datasheet>> {
     let service = DataService::new(pool);

@@ -1,15 +1,15 @@
 use crate::core::entity::{AuditLog, AuditLogQuery, NewAuditLog, NewRole, Role, UpdateRole};
+use crate::core::value_object::Module;
 use crate::dto::response::{
-    AuditLogListResponse, ModuleListResponse, RoleListResponse, RoleModuleResponse,
+    AuditLogListResponse, ModuleInfo, ModuleListResponse, RoleListResponse, RoleModuleResponse,
 };
 use crate::errors::{AppError, AppResult};
-use crate::repository::{AuditLogRepository, EnsureFound, ModulePermissionRepository, RoleRepository};
+use crate::repository::{AuditLogRepository, EnsureFound, RoleRepository};
 use sqlx::PgPool;
 use uuid::Uuid;
 
 pub struct AdminService<'a> {
     role_repo: RoleRepository<'a>,
-    module_perm_repo: ModulePermissionRepository<'a>,
     audit_log_repo: AuditLogRepository<'a>,
 }
 
@@ -17,7 +17,6 @@ impl<'a> AdminService<'a> {
     pub fn new(pool: &'a PgPool) -> Self {
         Self {
             role_repo: RoleRepository::new(pool),
-            module_perm_repo: ModulePermissionRepository::new(pool),
             audit_log_repo: AuditLogRepository::new(pool),
         }
     }
@@ -98,84 +97,78 @@ impl<'a> AdminService<'a> {
         Ok(())
     }
 
-    // ===== 模块管理 =====
+    // ===== 模块管理（基于 Module 枚举，无 DB） =====
 
     pub async fn list_modules(&self) -> AppResult<ModuleListResponse> {
-        let modules = self.module_perm_repo.list_all_modules().await?;
+        let modules: Vec<ModuleInfo> = Module::all().iter().map(ModuleInfo::from).collect();
         Ok(ModuleListResponse { modules })
     }
 
     pub async fn get_role_modules(&self, role_id: &Uuid) -> AppResult<RoleModuleResponse> {
         self.role_repo.find_by_id(role_id).await?.ensure_found("角色", role_id)?;
 
-        let modules = self.module_perm_repo.get_role_modules(role_id).await?;
+        let module_codes = self.role_repo.get_role_module_codes(role_id).await?;
+        let modules: Vec<ModuleInfo> = module_codes
+            .iter()
+            .filter_map(|code| {
+                Module::from_str(code).map(|m| ModuleInfo::from(&m))
+            })
+            .collect();
+
         Ok(RoleModuleResponse {
             role_id: *role_id,
             modules,
         })
     }
 
-    pub async fn assign_module(&self, role_id: &Uuid, module_id: &Uuid) -> AppResult<()> {
+    pub async fn assign_module(&self, role_id: &Uuid, module_code: &str) -> AppResult<()> {
         self.role_repo.find_by_id(role_id).await?.ensure_found("角色", role_id)?;
 
-        if !self.module_perm_repo.module_exists(module_id).await? {
-            return Err(AppError::NotFound(format!("模块: {}", module_id)));
-        }
+        // 验证 module_code 是否有效
+        Module::from_str(module_code)
+            .ok_or_else(|| AppError::ValidationError(format!("无效的模块代码: {}", module_code)))?;
 
-        self.module_perm_repo.assign_module(role_id, module_id).await?;
+        self.role_repo.assign_module_code(role_id, module_code).await?;
         Ok(())
     }
 
-    pub async fn revoke_module(&self, role_id: &Uuid, module_id: &Uuid) -> AppResult<()> {
+    pub async fn revoke_module(&self, role_id: &Uuid, module_code: &str) -> AppResult<()> {
         self.role_repo.find_by_id(role_id).await?.ensure_found("角色", role_id)?;
 
-        self.module_perm_repo.revoke_module(role_id, module_id).await?;
+        self.role_repo.revoke_module_code(role_id, module_code).await?;
         Ok(())
     }
 
-    pub async fn batch_assign_modules(&self, role_id: &Uuid, module_ids: &[Uuid]) -> AppResult<()> {
+    pub async fn batch_assign_modules(&self, role_id: &Uuid, module_codes: &[String]) -> AppResult<()> {
         self.role_repo.find_by_id(role_id).await?.ensure_found("角色", role_id)?;
 
-        for module_id in module_ids {
-            if self.module_perm_repo.module_exists(module_id).await? {
-                self.module_perm_repo.assign_module(role_id, module_id).await?;
-            }
+        // 验证所有 module_code
+        for code in module_codes {
+            Module::from_str(code)
+                .ok_or_else(|| AppError::ValidationError(format!("无效的模块代码: {}", code)))?;
         }
 
+        self.role_repo.batch_assign_module_codes(role_id, module_codes).await?;
         Ok(())
     }
 
-    pub async fn batch_revoke_modules(&self, role_id: &Uuid, module_ids: &[Uuid]) -> AppResult<()> {
+    pub async fn batch_revoke_modules(&self, role_id: &Uuid, module_codes: &[String]) -> AppResult<()> {
         self.role_repo.find_by_id(role_id).await?.ensure_found("角色", role_id)?;
 
-        for module_id in module_ids {
-            self.module_perm_repo.revoke_module(role_id, module_id).await?;
-        }
-
+        self.role_repo.batch_revoke_module_codes(role_id, module_codes).await?;
         Ok(())
     }
 
-    pub async fn set_role_modules(&self, role_id: &Uuid, module_ids: &[Uuid]) -> AppResult<()> {
+    pub async fn set_role_modules(&self, role_id: &Uuid, module_codes: &[String]) -> AppResult<()> {
         self.role_repo.find_by_id(role_id).await?.ensure_found("角色", role_id)?;
 
-        let current_modules = self.module_perm_repo.get_role_module_ids(role_id).await?;
-
-        let current_set: std::collections::HashSet<Uuid> = current_modules.into_iter().collect();
-        let new_set: std::collections::HashSet<Uuid> = module_ids.iter().cloned().collect();
-
-        let to_add: Vec<Uuid> = new_set.difference(&current_set).cloned().collect();
-        let to_remove: Vec<Uuid> = current_set.difference(&new_set).cloned().collect();
-
-        for module_id in to_add {
-            if self.module_perm_repo.module_exists(&module_id).await? {
-                self.module_perm_repo.assign_module(role_id, &module_id).await?;
-            }
+        // 验证所有 module_code
+        for code in module_codes {
+            Module::from_str(code)
+                .ok_or_else(|| AppError::ValidationError(format!("无效的模块代码: {}", code)))?;
         }
 
-        for module_id in to_remove {
-            self.module_perm_repo.revoke_module(role_id, &module_id).await?;
-        }
-
+        self.role_repo.set_role_module_codes(role_id, module_codes).await?;
         Ok(())
     }
 

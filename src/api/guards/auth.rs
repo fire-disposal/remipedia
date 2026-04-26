@@ -19,6 +19,22 @@ pub struct AuthenticatedUser {
     pub accessible_modules: Vec<String>,
 }
 
+impl AuthenticatedUser {
+    /// 检查当前用户是否为系统角色，否则返回 403
+    pub fn check_system_role(&self) -> Result<(), AppError> {
+        if self.is_system_role {
+            Ok(())
+        } else {
+            Err(AppError::Forbidden)
+        }
+    }
+
+    /// 检查当前用户是否有权访问指定模块
+    pub fn can_access_module(&self, module: &Module) -> bool {
+        self.is_system_role || self.accessible_modules.contains(&module.as_str().to_string())
+    }
+}
+
 #[rocket::async_trait]
 impl<'r> FromRequest<'r> for AuthenticatedUser {
     type Error = AppError;
@@ -60,165 +76,21 @@ impl<'r> FromRequest<'r> for AuthenticatedUser {
     }
 }
 
-/// 系统角色守卫（拥有通配权限）
-/// 
-/// 用于管理功能，如角色管理、审计日志等
-#[derive(Debug, Clone)]
-pub struct SystemRoleGuard(pub AuthenticatedUser);
-
-#[rocket::async_trait]
-impl<'r> FromRequest<'r> for SystemRoleGuard {
-    type Error = AppError;
-
-    async fn from_request(request: &'r Request<'_>) -> Outcome<Self, Self::Error> {
-        let user = AuthenticatedUser::from_request(request).await;
-
-        match user {
-            Outcome::Success(user) => {
-                if user.is_system_role {
-                    Outcome::Success(Self(user))
-                } else {
-                    Outcome::Error((Status::Forbidden, AppError::Forbidden))
-                }
-            }
-            Outcome::Error(e) => Outcome::Error(e),
-            Outcome::Forward(f) => Outcome::Forward(f),
-        }
-    }
-}
-
-/// 模块权限守卫
-/// 
-/// 检查用户是否有访问特定模块的权限
-#[derive(Debug, Clone)]
-pub struct ModuleGuard {
-    pub user: AuthenticatedUser,
-    pub module: Module,
-}
-
-impl ModuleGuard {
-    /// 检查用户是否有权限访问指定模块
-    pub fn can_access(&self, module: Module) -> bool {
-        // 系统角色拥有所有权限
-        if self.user.is_system_role {
-            return true;
-        }
-        // 检查模块是否在可访问列表中
-        self.user.accessible_modules.contains(&module.as_str().to_string())
-    }
-}
-
-/// 模块守卫工厂（用于从请求推断模块）
-pub struct ModuleGuardFactory {
-    pub module: Module,
-}
-
-impl ModuleGuardFactory {
-    pub const fn new(module: Module) -> Self {
-        Self { module }
-    }
-}
-
-#[rocket::async_trait]
-impl<'r> FromRequest<'r> for ModuleGuard {
-    type Error = AppError;
-
-    async fn from_request(request: &'r Request<'_>) -> Outcome<Self, Self::Error> {
-        // 获取用户信息
-        let user = match AuthenticatedUser::from_request(request).await {
-            Outcome::Success(user) => user,
-            Outcome::Error(e) => return Outcome::Error(e),
-            Outcome::Forward(f) => return Outcome::Forward(f),
-        };
-
-        // 系统角色直接通过，不检查具体模块
-        if user.is_system_role {
-            return Outcome::Success(Self {
-                user,
-                module: Module::Dashboard, // 占位，实际不限制
-            });
-        }
-
-        // 从请求路径推断模块
-        let path = request.uri().path().as_str();
-        let module = parse_module_from_path(path);
-
-        // 检查是否有权限
-        if user.accessible_modules.contains(&module.as_str().to_string()) {
-            Outcome::Success(Self { user, module })
-        } else {
-            Outcome::Error((Status::Forbidden, AppError::Forbidden))
-        }
-    }
-}
-
-/// 从路径推断模块
-fn parse_module_from_path(path: &str) -> Module {
-    let parts: Vec<&str> = path.split('/').filter(|s| !s.is_empty()).collect();
-    
-    // 获取路径中的模块标识
-    let module_code = if parts.len() >= 2 && parts[0] == "api" {
-        if parts.len() >= 3 {
-            parts[2]
-        } else {
-            "dashboard"
-        }
-    } else if !parts.is_empty() {
-        parts[0]
-    } else {
-        "dashboard"
-    };
-
-    // 映射到模块枚举
-    match module_code {
-        "patients" => Module::Patients,
-        "devices" => Module::Devices,
-        "bindings" => Module::Bindings,
-        "data" => Module::Data,
-        "users" => Module::Users,
-        "admin" => {
-            // admin 路径需要进一步判断
-            if parts.len() >= 4 {
-                match parts[3] {
-                    "roles" | "permissions" => Module::Roles,
-                    "audit-logs" => Module::AuditLogs,
-                    _ => Module::Settings,
-                }
-            } else {
-                Module::Settings
-            }
-        }
-        "settings" => Module::Settings,
-        "pressure-ulcer" => Module::PressureUlcer,
-        _ => Module::Dashboard,
-    }
-}
-
 /// 显式模块守卫（指定模块）
-/// 
+///
 /// 用法示例：
 /// ```ignore
-/// #[get("/patients")]
-/// async fn list_patients(
-///     _guard: ExplicitModuleGuard<{ Module::Patients }>,
-/// ) -> Json<()>
+/// let user = AuthenticatedUser::from_request(request).await;
+/// if !ExplicitModuleGuard::check(&user, Module::Patients) {
+///     return Err(AppError::Forbidden);
+/// }
 /// ```
 #[derive(Clone)]
-pub struct ExplicitModuleGuard {
-    pub user: AuthenticatedUser,
-    pub module: Module,
-}
+pub struct ExplicitModuleGuard;
 
 impl ExplicitModuleGuard {
-    pub fn new(user: AuthenticatedUser, module: Module) -> Self {
-        Self { user, module }
-    }
-    
-    /// 创建守卫检查函数（用于路由宏）
+    /// 检查用户是否有权访问指定模块
     pub fn check(user: &AuthenticatedUser, module: Module) -> bool {
-        if user.is_system_role {
-            return true;
-        }
-        user.accessible_modules.contains(&module.as_str().to_string())
+        user.can_access_module(&module)
     }
 }

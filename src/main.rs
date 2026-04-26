@@ -14,8 +14,6 @@ use remipedia::repository::UserRepository;
 static MIGRATOR: sqlx::migrate::Migrator = sqlx::migrate!();
 
 fn init_logging() {
-    tracing_log::LogTracer::init().ok();
-
     tracing_subscriber::fmt()
         .with_env_filter(
             tracing_subscriber::EnvFilter::builder()

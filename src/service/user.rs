@@ -23,6 +23,27 @@ impl<'a> UserService<'a> {
         }
     }
 
+    /// 将 User 实体转换为 UserResponse（替代 User::to_response 的跨层调用）
+    async fn to_user_response(&self, user: crate::core::entity::User) -> AppResult<UserResponse> {
+        let role_name = match self.role_repo.find_by_id(&user.role_id).await? {
+            Some(role) => role.name,
+            None => "unknown".to_string(),
+        };
+
+        Ok(UserResponse {
+            id: user.id,
+            username: user.username,
+            role_id: user.role_id,
+            role_name,
+            phone: user.phone,
+            email: user.email,
+            avatar_url: user.avatar_url,
+            status: user.status,
+            created_at: user.created_at,
+            last_login_at: user.last_login_at,
+        })
+    }
+
     /// 创建用户
     pub async fn create(&self, req: CreateUserRequest) -> AppResult<UserResponse> {
         // 验证角色存在
@@ -59,14 +80,14 @@ impl<'a> UserService<'a> {
             user.id, user.username
         );
 
-        // 使用to_response方法转换
-        user.to_response(&self.role_repo).await
+        // 转换为UserResponse
+        self.to_user_response(user).await
     }
 
     /// 获取用户
     pub async fn get_by_id(&self, id: &Uuid) -> AppResult<UserResponse> {
         let user = self.user_repo.find_by_id(id).await?;
-        user.to_response(&self.role_repo).await
+        self.to_user_response(user).await
     }
 
     /// 更新用户
@@ -93,7 +114,7 @@ impl<'a> UserService<'a> {
 
         info!("用户更新成功: user_id={}", user.id);
 
-        user.to_response(&self.role_repo).await
+        self.to_user_response(user).await
     }
 
     /// 查询用户列表
